@@ -42,7 +42,12 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
 //-----------------------------------------------------------------------------
 ASound::~ASound()
 {
-
+    if (wavData_)
+    {
+        delete[] wavData_;
+    }
+    alDeleteSources(1, &source_);
+    alDeleteBuffers(1, &buffer_);
 }
 
 
@@ -91,8 +96,17 @@ void ASound::loadFile_(QString soundname)
         return;
     }
 
-    file_.open(QIODevice::ReadOnly);
-    canDo_ = true;
+    if (file_.open(QIODevice::ReadOnly))
+    {
+        canDo_ = true;
+    }
+    else
+    {
+        canDo_ = false;
+        lastError_ = "CANT_OPEN_FILE_FOR_READING: ";
+        lastError_.append(soundname);
+        return;
+    }
 }
 
 
@@ -176,6 +190,8 @@ void ASound::readWaveInfo_()
         memcpy((unsigned char*) wavData_,
                (unsigned char*) arr.data(),
                wave_info_.subchunk2Size);
+
+        file_.close();
     }
 }
 
@@ -529,4 +545,40 @@ QString ASound::getLastError()
     QString foo = lastError_;
     lastError_.clear();
     return foo;
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+bool ASound::isPlaying()
+{
+    ALint state;
+    alGetSourcei(source_, AL_SOURCE_STATE, &state);
+    return(state == AL_PLAYING);
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+bool ASound::isPaused()
+{
+    ALint state;
+    alGetSourcei(source_, AL_SOURCE_STATE, &state);
+    return(state == AL_PAUSED);
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+bool ASound::isStopped()
+{
+    ALint state;
+    alGetSourcei(source_, AL_SOURCE_STATE, &state);
+    return(state == AL_STOPPED);
 }

@@ -101,6 +101,12 @@ public:
     void getVelocity(float &x, float &y, float &z);
     // Получить последнюю ошибку
     QString getLastError();
+    // Играет ли звук
+    bool isPlaying();
+    // Остановлен ли звук
+    bool isStopped();
+    // Преостановлен ли звук
+    bool isPaused();
 
 public slots:
     // Играть звук
