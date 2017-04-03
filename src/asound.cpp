@@ -129,67 +129,29 @@ void ASound::readWaveInfo_()
                (unsigned char*) arr.data(),
                sizeof(wave_info_t));
 
-        //! /////////////////////////////////////////// //
-        //!    Далее идет проверка данных. Проверка     //
-        //!  производится ПОСИМВОЛЬНО, так как в данных //
-        //! нет символа, завершающего строку, и в конце //
-        //!     строки появляются лишние знаки!!!       //
-        //! /////////////////////////////////////////// //
+        //! ///////////////////////////////////////////// //
+        //!     Далее идет проверка данных. Проверка      //
+        //! представляет из себя поиск позиции подстроки  //
+        //!     в исходной строке (если она там есть).    //
+        //! ///////////////////////////////////////////// //
 
-        // Проверка ИД главного раздела -    -    -    -    -    -    RIFF
-        bool foo =  wave_info_.chunkId[0] == 'R' &&
-                    wave_info_.chunkId[1] == 'I' &&
-                    wave_info_.chunkId[2] == 'F' &&
-                    wave_info_.chunkId[3] == 'F';
-        if (!foo)
+        checkValue(wave_info_.chunkId, "RIFF", "NOT_RIFF_FILE");
+        checkValue(wave_info_.format, "WAVE", "NOT_WAVE_FILE");
+        checkValue(wave_info_.subchunk1Id, "fmt", "NO_fmt");
+        checkValue(wave_info_.subchunk2Id, "data", "NO_data");
+
+        QString zu = lastError_;
+
+        if (canDo_)
         {
-            lastError_ = "NOT_RIFF_FILE";
-            canDo_ = false;
-            return;
+            arr = file_.read(wave_info_.subchunk2Size);
+
+            wavData_ = new unsigned char[wave_info_.subchunk2Size];
+
+            memcpy((unsigned char*) wavData_,
+                   (unsigned char*) arr.data(),
+                   wave_info_.subchunk2Size);
         }
-
-        // Проверка формата   -    -    -    -    -    -    -    -    WAVE
-        foo =   wave_info_.format[0] == 'W' &&
-                wave_info_.format[1] == 'A' &&
-                wave_info_.format[2] == 'V' &&
-                wave_info_.format[3] == 'E';
-        if (!foo)
-        {
-            lastError_ = "NOT_WAVE_FILE";
-            canDo_ = false;
-            return;
-        }
-
-        // Проверка ИД первого подраздела     -    -    -    -    -    fmt
-        foo =   wave_info_.subchunk1Id[0] == 'f' &&
-                wave_info_.subchunk1Id[1] == 'm' &&
-                wave_info_.subchunk1Id[2] == 't';
-        if (!foo)
-        {
-            lastError_ = "NO_fmt";
-            canDo_ = false;
-            return;
-        }
-
-        // Проверка ИД второго подраздела    -    -    -    -    -    data
-        foo =   wave_info_.subchunk2Id[0] == 'd' &&
-                wave_info_.subchunk2Id[1] == 'a' &&
-                wave_info_.subchunk2Id[2] == 't' &&
-                wave_info_.subchunk2Id[3] == 'a';
-        if (!foo)
-        {
-            lastError_ = "NO_data";
-            canDo_ = false;
-            return;
-        }
-
-        arr = file_.read(wave_info_.subchunk2Size);
-
-        wavData_ = new unsigned char[wave_info_.subchunk2Size];
-
-        memcpy((unsigned char*) wavData_,
-               (unsigned char*) arr.data(),
-               wave_info_.subchunk2Size);
 
         file_.close();
     }
@@ -581,4 +543,25 @@ bool ASound::isStopped()
     ALint state;
     alGetSourcei(source_, AL_SOURCE_STATE, &state);
     return(state == AL_STOPPED);
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
+{
+    if (canDo_)
+    {
+        //! /////////////////////////////////////////////// //
+        //! Важно, чтобы подстрока начиналась с 0 элемента! //
+        //!    иначе проверку нельзя считать достоверной    //
+        //! /////////////////////////////////////////////// //
+        if (baseStr.find(targStr) != 0)
+        {
+            lastError_ = err;
+            canDo_ = false;
+        }
+    }
 }

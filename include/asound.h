@@ -12,11 +12,17 @@
 
 #include <QObject>
 #include <QFile>
-#include <cstdlib>
-#include <iostream>
+//#include <cstdlib>
+//#include <iostream>
 #include <al.h>
 #include <alc.h>
-#include "asound_global.h"
+
+
+#if defined(ASOUND_LIBRARY)
+#  define ASOUNDSHARED_EXPORT Q_DECL_EXPORT
+#else
+#  define ASOUNDSHARED_EXPORT Q_DECL_IMPORT
+#endif
 
 
 #pragma pack(push, 1)
@@ -168,6 +174,8 @@ private:
     void generateStuff_();
     // Настраиваем источник
     void configureSource_();
+    // Метод проверки необходимых параметров
+    void checkValue(std::string baseStr, const char targStr[], QString err);
 };
 
 #endif // ASOUND_H

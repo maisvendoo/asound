@@ -8,10 +8,10 @@ QT       -= gui
 
 CONFIG(debug, debug|release){
     TARGET = ASoundd
-    DESTDIR = ../../bin
+    DESTDIR = ../../lib
 } else {
     TARGET = ASound
-    DESTDIR = ../../bin
+    DESTDIR = ../../lib
 }
 
 TEMPLATE = lib
@@ -29,7 +29,8 @@ win32{
 }
 
 unix{
-    #LIBS += -lOpenAL32;
+    LIBS += -lopenal;
+    INCLUDEPATH += /usr/include/AL
 }
 
 unix {
