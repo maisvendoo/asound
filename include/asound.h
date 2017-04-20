@@ -11,11 +11,10 @@
 #define ASOUND_H
 
 #include <QObject>
-#include <QFile>
-//#include <cstdlib>
-//#include <iostream>
 #include <al.h>
 #include <alc.h>
+
+class QFile;
 
 
 #if defined(ASOUND_LIBRARY)
@@ -138,7 +137,7 @@ private:
     QString lastError_;
 
     // Переменная для хранения файла
-    QFile file_;
+    QFile* file_;
 
     // Информация о файле .wav
     wave_info_t wave_info_;
@@ -176,6 +175,16 @@ private:
     void configureSource_();
     // Метод проверки необходимых параметров
     void checkValue(std::string baseStr, const char targStr[], QString err);
+};
+
+class ASOUNDSHARED_EXPORT AListener
+{
+public:
+    static AListener &getInstance();
+private:
+    AListener();
+    ALCdevice* device_;
+    ALCcontext* context_;
 };
 
 #endif // ASOUND_H

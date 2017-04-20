@@ -8,6 +8,7 @@
 
 
 #include "asound.h"
+#include <QFile>
 
 
 //-----------------------------------------------------------------------------
@@ -31,6 +32,7 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
                     DEF_VEL[1], //
                     DEF_VEL[2]} //
 {
+    file_ = new QFile();
     // Загружаем звук
     loadSound_(soundname);
 }
@@ -86,9 +88,9 @@ void ASound::loadSound_(QString soundname)
 //-----------------------------------------------------------------------------
 void ASound::loadFile_(QString soundname)
 {
-    file_.setFileName(soundname);
+    file_->setFileName(soundname);
 
-    if (!file_.exists())
+    if (!file_->exists())
     {
         lastError_ = "NO_SUCH_FILE: ";
         lastError_.append(soundname);
@@ -96,7 +98,7 @@ void ASound::loadFile_(QString soundname)
         return;
     }
 
-    if (file_.open(QIODevice::ReadOnly))
+    if (file_->open(QIODevice::ReadOnly))
     {
         canDo_ = true;
     }
@@ -123,7 +125,7 @@ void ASound::readWaveInfo_()
             delete[] wavData_;
         }
 
-        QByteArray arr = file_.read(sizeof(wave_info_t));
+        QByteArray arr = file_->read(sizeof(wave_info_t));
 
         memcpy((unsigned char*) &wave_info_,
                (unsigned char*) arr.data(),
@@ -144,7 +146,7 @@ void ASound::readWaveInfo_()
 
         if (canDo_)
         {
-            arr = file_.read(wave_info_.subchunk2Size);
+            arr = file_->read(wave_info_.subchunk2Size);
 
             wavData_ = new unsigned char[wave_info_.subchunk2Size];
 
@@ -153,7 +155,7 @@ void ASound::readWaveInfo_()
                    wave_info_.subchunk2Size);
         }
 
-        file_.close();
+        file_->close();
     }
 }
 
@@ -554,14 +556,45 @@ void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
 {
     if (canDo_)
     {
-        //! /////////////////////////////////////////////// //
-        //! Важно, чтобы подстрока начиналась с 0 элемента! //
-        //!    иначе проверку нельзя считать достоверной    //
-        //! /////////////////////////////////////////////// //
+        // // /////////////////////////////////////////////// //
+        // // Важно, чтобы подстрока начиналась с 0 элемента! //
+        // //    иначе проверку нельзя считать достоверной    //
+        // // /////////////////////////////////////////////// //
         if (baseStr.find(targStr) != 0)
         {
             lastError_ = err;
             canDo_ = false;
         }
     }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// КОНСТРУКТОР
+//-----------------------------------------------------------------------------
+AListener::AListener()
+{
+    device_ = alcOpenDevice(NULL);
+    context_ = alcCreateContext(device_, NULL);
+    alcMakeContextCurrent(context_);
+
+    ALfloat lPos[] = {0.0, 0.0, 0.0};
+    ALfloat lVel[] = {0.0, 0.0, 0.0};
+    ALfloat lOri[] = {0.0, 0.0, -1.0, 0.0, 1.0, 0.0};
+
+    alListenerfv(AL_POSITION,    lPos);
+    alListenerfv(AL_VELOCITY,    lVel);
+    alListenerfv(AL_ORIENTATION, lOri);
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+AListener& AListener::getInstance()
+{
+    static AListener instance;
+    return instance;
 }
