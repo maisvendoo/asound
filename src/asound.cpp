@@ -18,16 +18,25 @@
 //-----------------------------------------------------------------------------
 AListener::AListener()
 {
+    // Открываем устройство
     device_ = alcOpenDevice(NULL);
+    // Создаём контекст
     context_ = alcCreateContext(device_, NULL);
+    // Устанавливаем текущий контекст
     alcMakeContextCurrent(context_);
 
+    // Инициализируем положение слушателя
     memcpy(listenerPosition_,    DEF_LSN_POS, 3 * sizeof(float));
+    // Инициализируем вектор "скорости передвижения" слушателя
     memcpy(listenerVelocity_,    DEF_LSN_VEL, 3 * sizeof(float));
+    // Инициализируем векторы направления слушателя
     memcpy(listenerOrientation_, DEF_LSN_ORI, 6 * sizeof(float));
 
+    // Устанавливаем положение слушателя
     alListenerfv(AL_POSITION,    listenerPosition_);
+    // Устанавливаем скорость слушателя
     alListenerfv(AL_VELOCITY,    listenerVelocity_);
+    // Устанавливаем направление слушателя
     alListenerfv(AL_ORIENTATION, listenerOrientation_);
 }
 
@@ -38,7 +47,9 @@ AListener::AListener()
 //-----------------------------------------------------------------------------
 AListener& AListener::getInstance()
 {
+    // Создаем статичный экземпляр класса
     static AListener instance;
+    // Возвращаем его при каждом вызове метода
     return instance;
 }
 
@@ -62,9 +73,12 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
     sourcePitch_(DEF_SRC_PITCH),    // Скорость воспроизведения по умолч.
     sourceLoop_(false)         // Зацикливание по-умолч.
 {
+    // Инициализируем позицию источника
     memcpy(sourcePosition_, DEF_SRC_POS, 3 * sizeof(float));
+    // Инициализируем вектор "скорости передвижения" источника
     memcpy(sourceVelocity_, DEF_SRC_VEL, 3 * sizeof(float));
 
+    // Создаём контейнер аудиофайла
     file_ = new QFile();
     // Загружаем звук
     loadSound_(soundname);
@@ -79,34 +93,44 @@ ASound::~ASound()
 {
     if (wavData_)
     {
+        // Контейнер секции data файла wav
         delete[] wavData_;
     }
+    // Удаляем источник
     alDeleteSources(1, &source_);
+    // Удаляем буфер
     alDeleteBuffers(1, &buffer_);
 }
 
 
 
 //-----------------------------------------------------------------------------
-//
+// Полная подготовка файла
 //-----------------------------------------------------------------------------
 void ASound::loadSound_(QString soundname)
 {
     // Сбрасываем флаги
     canDo_ = false;
     canPlay_ = false;
+
     // Сохраняем название звука
     soundName_ = soundname;
+
     // Загружаем файл
     loadFile_(soundname);
+
     // Читаем информационный раздел 44байта
     readWaveInfo_();
+
     // Определяем формат аудио (mono8/16 - stereo8/16) OpenAL
     defineFormat_();
+
     // Генерируем буфер и источник
     generateStuff_();
+
     // Настраиваем источник
     configureSource_();
+
     // Можно играть звук
     if (canDo_)
     {
@@ -117,12 +141,14 @@ void ASound::loadSound_(QString soundname)
 
 
 //-----------------------------------------------------------------------------
-//
+// Загрузка файла (в т.ч. из ресурсов)
 //-----------------------------------------------------------------------------
 void ASound::loadFile_(QString soundname)
 {
+    // Загружаем файл в контейнер
     file_->setFileName(soundname);
 
+    // Проверяем, существует ли файл
     if (!file_->exists())
     {
         lastError_ = "NO_SUCH_FILE: ";
@@ -131,6 +157,7 @@ void ASound::loadFile_(QString soundname)
         return;
     }
 
+    // Пытаемся открыть файл
     if (file_->open(QIODevice::ReadOnly))
     {
         canDo_ = true;
@@ -147,47 +174,49 @@ void ASound::loadFile_(QString soundname)
 
 
 //-----------------------------------------------------------------------------
-//
+// Чтение информации о файле .wav
 //-----------------------------------------------------------------------------
 void ASound::readWaveInfo_()
 {
     if (canDo_)
     {
+        // Если ранее был загружен другой файл
         if (wavData_)
         {
             delete[] wavData_;
         }
 
+        // Читаем все 44 байта информации в массив
         QByteArray arr = file_->read(sizeof(wave_info_t));
 
+        // Переносим все значения из массива в струтуру
         memcpy((unsigned char*) &wave_info_,
                (unsigned char*) arr.data(),
                sizeof(wave_info_t));
 
-        //! ///////////////////////////////////////////// //
-        //!     Далее идет проверка данных. Проверка      //
-        //! представляет из себя поиск позиции подстроки  //
-        //!     в исходной строке (если она там есть).    //
-        //! ///////////////////////////////////////////// //
-
+        // ////////////////////////////////////////////// //
+        //      Далее идет проверка данных. Проверка      //
+        //  представляет из себя поиск позиции подстроки  //
+        //      в исходной строке (если она там есть).    //
+        // ////////////////////////////////////////////// //
         checkValue(wave_info_.chunkId, "RIFF", "NOT_RIFF_FILE");
         checkValue(wave_info_.format, "WAVE", "NOT_WAVE_FILE");
         checkValue(wave_info_.subchunk1Id, "fmt", "NO_fmt");
         checkValue(wave_info_.subchunk2Id, "data", "NO_data");
 
-        QString zu = lastError_;
-
         if (canDo_)
         {
+            // Читаем из файла сами медиа данные зная их размер
             arr = file_->read(wave_info_.subchunk2Size);
-
+            // Создаем массив для данных
             wavData_ = new unsigned char[wave_info_.subchunk2Size];
-
+            // Переносим данные в массив
             memcpy((unsigned char*) wavData_,
                    (unsigned char*) arr.data(),
                    wave_info_.subchunk2Size);
         }
 
+        // Закрываем файл
         file_->close();
     }
 }
@@ -195,35 +224,35 @@ void ASound::readWaveInfo_()
 
 
 //-----------------------------------------------------------------------------
-//
+// Определение формата аудио (mono8/16 - stereo8/16)
 //-----------------------------------------------------------------------------
 void ASound::defineFormat_()
 {
     if (canDo_)
     {
-        if (wave_info_.bitsPerSample == 8)
+        if (wave_info_.bitsPerSample == 8)      // Если бит в сэмпле 8
         {
-            if (wave_info_.numChannels == 1)
+            if (wave_info_.numChannels == 1)    // Если 1 канал
             {
                 format_ = AL_FORMAT_MONO8;
             }
-            else
+            else                                // Если 2 канала
             {
                 format_ = AL_FORMAT_STEREO8;
             }
         }
-        else if (wave_info_.bitsPerSample == 16)
+        else if (wave_info_.bitsPerSample == 16)// Если бит в сэмпле 16
         {
-            if (wave_info_.numChannels == 1)
+            if (wave_info_.numChannels == 1)    // Если 1 канал
             {
                 format_ = AL_FORMAT_MONO16;
             }
-            else
+            else                                // Если 2 канала
             {
                 format_ = AL_FORMAT_STEREO16;
             }
         }
-        else
+        else                                    // Если все плохо
         {
             lastError_ = "UNKNOWN_AUDIO_FORMAT";
             canDo_ = false;
@@ -234,12 +263,13 @@ void ASound::defineFormat_()
 
 
 //-----------------------------------------------------------------------------
-//
+// Генерация буфера и источника
 //-----------------------------------------------------------------------------
 void ASound::generateStuff_()
 {
     if (canDo_)
     {
+        // Генерируем буфер
         alGenBuffers(1, &buffer_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -249,6 +279,7 @@ void ASound::generateStuff_()
             return;
         }
 
+        // Генерируем источник
         alGenSources(1, &source_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -258,6 +289,7 @@ void ASound::generateStuff_()
             return;
         }
 
+        // Настраиваем буфер
         alBufferData(buffer_,
                      format_,
                      wavData_,
@@ -276,12 +308,13 @@ void ASound::generateStuff_()
 
 
 //-----------------------------------------------------------------------------
-//
+// Настройка источника
 //-----------------------------------------------------------------------------
 void ASound::configureSource_()
 {
     if (canDo_)
     {
+        // Передаём источнику буфер
         alSourcei(source_, AL_BUFFER, buffer_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -291,6 +324,7 @@ void ASound::configureSource_()
             return;
         }
 
+        // Устанавливаем громкость
         alSourcef(source_, AL_GAIN, 0.01f * sourceVolume_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -300,6 +334,7 @@ void ASound::configureSource_()
             return;
         }
 
+        // Устанавливаем скорость воспроизведения
         alSourcef(source_, AL_PITCH, sourcePitch_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -309,6 +344,7 @@ void ASound::configureSource_()
             return;
         }
 
+        // Устанавливаем зацикливание
         alSourcei(source_, AL_LOOPING, (char)sourceLoop_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -318,6 +354,7 @@ void ASound::configureSource_()
             return;
         }
 
+        // Устанавливаем положение
         alSourcefv(source_, AL_POSITION, sourcePosition_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -327,6 +364,7 @@ void ASound::configureSource_()
             return;
         }
 
+        // Устанавливаем вектор "скорости передвижения"
         alSourcefv(source_, AL_VELOCITY, sourceVelocity_);
 
         if (alGetError() != AL_NO_ERROR)
@@ -341,7 +379,7 @@ void ASound::configureSource_()
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Установить громкость
 //-----------------------------------------------------------------------------
 void ASound::setVolume(int volume)
 {
@@ -362,7 +400,7 @@ void ASound::setVolume(int volume)
 
 
 //-----------------------------------------------------------------------------
-//
+// Вернуть громкость
 //-----------------------------------------------------------------------------
 int ASound::getVolume()
 {
@@ -372,7 +410,7 @@ int ASound::getVolume()
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Установить скорость воспроизведения
 //-----------------------------------------------------------------------------
 void ASound::setPitch(float pitch)
 {
@@ -386,7 +424,7 @@ void ASound::setPitch(float pitch)
 
 
 //-----------------------------------------------------------------------------
-//
+// Вернуть скорость воспроизведения
 //-----------------------------------------------------------------------------
 float ASound::getPitch()
 {
@@ -396,7 +434,7 @@ float ASound::getPitch()
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Установить зацикливание
 //-----------------------------------------------------------------------------
 void ASound::setLoop(bool loop)
 {
@@ -410,7 +448,7 @@ void ASound::setLoop(bool loop)
 
 
 //-----------------------------------------------------------------------------
-//
+// Вернуть зацикливание
 //-----------------------------------------------------------------------------
 bool ASound::getLoop()
 {
@@ -420,7 +458,7 @@ bool ASound::getLoop()
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Установить положение
 //-----------------------------------------------------------------------------
 void ASound::setPosition(float x, float y, float z)
 {
@@ -436,7 +474,7 @@ void ASound::setPosition(float x, float y, float z)
 
 
 //-----------------------------------------------------------------------------
-//
+// Вернуть положение
 //-----------------------------------------------------------------------------
 void ASound::getPosition(float &x, float &y, float &z)
 {
@@ -448,7 +486,7 @@ void ASound::getPosition(float &x, float &y, float &z)
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Установить вектор "скорости передвижения"
 //-----------------------------------------------------------------------------
 void ASound::setVelocity(float x, float y, float z)
 {
@@ -464,7 +502,7 @@ void ASound::setVelocity(float x, float y, float z)
 
 
 //-----------------------------------------------------------------------------
-//
+// Вернуть вектор "скорости перемещения"
 //-----------------------------------------------------------------------------
 void ASound::getVelocity(float &x, float &y, float &z)
 {
@@ -476,7 +514,7 @@ void ASound::getVelocity(float &x, float &y, float &z)
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Играть звук
 //-----------------------------------------------------------------------------
 void ASound::play()
 {
@@ -489,7 +527,7 @@ void ASound::play()
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Приостановить звук
 //-----------------------------------------------------------------------------
 void ASound::pause()
 {
@@ -502,7 +540,7 @@ void ASound::pause()
 
 
 //-----------------------------------------------------------------------------
-// (слот)
+// (слот) Остановить звук
 //-----------------------------------------------------------------------------
 void ASound::stop()
 {
@@ -515,7 +553,7 @@ void ASound::stop()
 
 
 //-----------------------------------------------------------------------------
-//
+// Вернуть последюю ошибку
 //-----------------------------------------------------------------------------
 QString ASound::getLastError()
 {
@@ -527,7 +565,7 @@ QString ASound::getLastError()
 
 
 //-----------------------------------------------------------------------------
-//
+// Играет ли звук
 //-----------------------------------------------------------------------------
 bool ASound::isPlaying()
 {
@@ -539,7 +577,7 @@ bool ASound::isPlaying()
 
 
 //-----------------------------------------------------------------------------
-//
+// Приостановлен ли звук
 //-----------------------------------------------------------------------------
 bool ASound::isPaused()
 {
@@ -551,7 +589,7 @@ bool ASound::isPaused()
 
 
 //-----------------------------------------------------------------------------
-//
+// Остановлен ли звук
 //-----------------------------------------------------------------------------
 bool ASound::isStopped()
 {
@@ -563,7 +601,7 @@ bool ASound::isStopped()
 
 
 //-----------------------------------------------------------------------------
-//
+// Метод проверки необходимых параметров
 //-----------------------------------------------------------------------------
 void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
 {
