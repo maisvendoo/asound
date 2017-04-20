@@ -10,7 +10,43 @@
 #include "asound.h"
 #include <QFile>
 
+// ****************************************************************************
+// *                         Класс AListener                                  *
+// ****************************************************************************
+//-----------------------------------------------------------------------------
+// КОНСТРУКТОР
+//-----------------------------------------------------------------------------
+AListener::AListener()
+{
+    device_ = alcOpenDevice(NULL);
+    context_ = alcCreateContext(device_, NULL);
+    alcMakeContextCurrent(context_);
 
+    memcpy(listenerPosition_,    DEF_LSN_POS, 3 * sizeof(float));
+    memcpy(listenerVelocity_,    DEF_LSN_VEL, 3 * sizeof(float));
+    memcpy(listenerOrientation_, DEF_LSN_ORI, 6 * sizeof(float));
+
+    alListenerfv(AL_POSITION,    listenerPosition_);
+    alListenerfv(AL_VELOCITY,    listenerVelocity_);
+    alListenerfv(AL_ORIENTATION, listenerOrientation_);
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+AListener& AListener::getInstance()
+{
+    static AListener instance;
+    return instance;
+}
+
+
+
+// ****************************************************************************
+// *                            Класс ASound                                  *
+// ****************************************************************************
 //-----------------------------------------------------------------------------
 // КОНСТРУКТОР
 //-----------------------------------------------------------------------------
@@ -22,16 +58,13 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
     source_(0),                 // Обнуляем источник
     buffer_(0),                 // Обнуляем буффер
     wavData_(NULL),             // Обнуляем массив дорожки
-    sourceVolume_(DEF_VOLUME),  // Громкость по умол.
-    sourcePitch_(DEF_PITCH),    // Скорость воспроизведения по умолч.
-    sourceLoop_(false),         // Зацикливание по-умолч.
-    sourcePosition_{DEF_POS[0], // Позиция по умолч
-                    DEF_POS[1], //
-                    DEF_POS[2]},//
-    sourceVelocity_{DEF_VEL[0], // Скорость передвижения по умолч.
-                    DEF_VEL[1], //
-                    DEF_VEL[2]} //
+    sourceVolume_(DEF_SRC_VOLUME),  // Громкость по умолч.
+    sourcePitch_(DEF_SRC_PITCH),    // Скорость воспроизведения по умолч.
+    sourceLoop_(false)         // Зацикливание по-умолч.
 {
+    memcpy(sourcePosition_, DEF_SRC_POS, 3 * sizeof(float));
+    memcpy(sourceVelocity_, DEF_SRC_VEL, 3 * sizeof(float));
+
     file_ = new QFile();
     // Загружаем звук
     loadSound_(soundname);
@@ -308,7 +341,7 @@ void ASound::configureSource_()
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::setVolume(int volume)
 {
@@ -316,11 +349,11 @@ void ASound::setVolume(int volume)
     {
         sourceVolume_ = volume;
 
-        if (sourceVolume_ > 100)
-            sourceVolume_ = 100;
+        if (sourceVolume_ > MAX_SRC_VOLUME)
+            sourceVolume_ = MAX_SRC_VOLUME;
 
-        if (sourceVolume_ < 0)
-            sourceVolume_ = 0;
+        if (sourceVolume_ < MIN_SRC_VOLUME)
+            sourceVolume_ = MIN_SRC_VOLUME;
 
         alSourcef(source_, AL_GAIN, 0.01f * sourceVolume_);
     }
@@ -339,7 +372,7 @@ int ASound::getVolume()
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::setPitch(float pitch)
 {
@@ -363,7 +396,7 @@ float ASound::getPitch()
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::setLoop(bool loop)
 {
@@ -387,7 +420,7 @@ bool ASound::getLoop()
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::setPosition(float x, float y, float z)
 {
@@ -415,7 +448,7 @@ void ASound::getPosition(float &x, float &y, float &z)
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::setVelocity(float x, float y, float z)
 {
@@ -443,7 +476,7 @@ void ASound::getVelocity(float &x, float &y, float &z)
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::play()
 {
@@ -456,7 +489,7 @@ void ASound::play()
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::pause()
 {
@@ -469,7 +502,7 @@ void ASound::pause()
 
 
 //-----------------------------------------------------------------------------
-//
+// (слот)
 //-----------------------------------------------------------------------------
 void ASound::stop()
 {
@@ -477,26 +510,6 @@ void ASound::stop()
     {
         alSourceStop(source_);
     }
-}
-
-
-
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-void ASound::setVolumeS(int vol)
-{
-    setVolume(vol);
-}
-
-
-
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-void ASound::setLoopS(bool loop)
-{
-    setLoop(loop);
 }
 
 
@@ -566,35 +579,4 @@ void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
             canDo_ = false;
         }
     }
-}
-
-
-
-//-----------------------------------------------------------------------------
-// КОНСТРУКТОР
-//-----------------------------------------------------------------------------
-AListener::AListener()
-{
-    device_ = alcOpenDevice(NULL);
-    context_ = alcCreateContext(device_, NULL);
-    alcMakeContextCurrent(context_);
-
-    ALfloat lPos[] = {0.0, 0.0, 0.0};
-    ALfloat lVel[] = {0.0, 0.0, 0.0};
-    ALfloat lOri[] = {0.0, 0.0, -1.0, 0.0, 1.0, 0.0};
-
-    alListenerfv(AL_POSITION,    lPos);
-    alListenerfv(AL_VELOCITY,    lVel);
-    alListenerfv(AL_ORIENTATION, lOri);
-}
-
-
-
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-AListener& AListener::getInstance()
-{
-    static AListener instance;
-    return instance;
 }

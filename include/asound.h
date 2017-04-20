@@ -1,11 +1,17 @@
 //-----------------------------------------------------------------------------
 //
-//      Библиотека для работы со звуком
+//      Библиотека для работы с 3D звуком
 //      (c) РГУПС, ВЖД 24/03/2017
 //      Разработал: Ковшиков С. В.
 //
 //-----------------------------------------------------------------------------
-
+/*!
+ *  \file
+ *  \brief Библиотека для работы с 3D звуком
+ *  \copyright РГУПС, ВЖД
+ *  \author Ковшиков С. В.
+ *  \date 24/03/2017
+ */
 
 #ifndef ASOUND_H
 #define ASOUND_H
@@ -24,22 +30,73 @@ class QFile;
 #endif
 
 
+//-----------------------------------------------------------------------------
+// Класс AListener
+//-----------------------------------------------------------------------------
+/// Положение слушателя по умолчанию
+const float DEF_LSN_POS[3] = {0.0, 0.0, 0.0};
+/// "Скорость передвижения" слушателя по умолчанию
+const float DEF_LSN_VEL[3] = {0.0, 0.0, 0.0};
+/// Направление слушателя по умолчанию
+const float DEF_LSN_ORI[6] = {0.0, 0.0, -1.0, 0.0, 1.0, 0.0};
+
+/*!
+ * \class AListener
+ * \brief Класс, реализующий создание единственного слушателя
+ */
+class ASOUNDSHARED_EXPORT AListener
+{
+public:
+    /// Статический метод запрещающий повторное создание экземпляра класса
+    static AListener &getInstance();
+
+
+private:
+    /// Конструктор (priate!)
+    AListener();
+
+    /// Аудиоустройство
+    ALCdevice* device_;
+
+    /// Контекст OpenAL
+    ALCcontext* context_;
+
+    /// Положение слушателя
+    ALfloat listenerPosition_[3];
+
+    /// "Скорость передвижения" слушателя
+    ALfloat listenerVelocity_[3];
+
+    /// Направление слушателя
+    ALfloat listenerOrientation_[6];
+
+};
+
+
+
+//-----------------------------------------------------------------------------
+// Класс ASound
+//-----------------------------------------------------------------------------
 #pragma pack(push, 1)
+/*!
+ * \struct wave_info_t
+ * \brief Структура для хранения данных о wav файле
+ */
 struct wave_info_t
 {
-    char            chunkId[4];     // ИД главного фрагмента "RIFF"
-    uint32_t        chunkSize;      // Размер первого фрагмента
-    char            format[4];      // Формат "WAVE"
-    char            subchunk1Id[4]; // ИД первого подфрагмента "fmt"
-    uint32_t        subchunk1Size;  // Размер первого подфрагмента
-    short           audioFormat;    // Формат сжатия
-    short           numChannels;    // Количество каналов
-    uint32_t        sampleRate;     // Частота дискретизации (frequency)
-    uint32_t        byteRate;       // Байт в секунду
-    short           bytesPerSample; // Байт в одном сэмпле (blockAlign)
-    short           bitsPerSample;  // Бит в сэмпле
-    char            subchunk2Id[4]; // ИД второго субфрагмента "data"
-    uint32_t        subchunk2Size;  // Размер самого звука
+    char            chunkId[4];     ///< ID главного фрагмента "RIFF"
+    uint32_t        chunkSize;      ///< Размер первого фрагмента
+    char            format[4];      ///< Формат "WAVE"
+    char            subchunk1Id[4]; ///< ID первого подфрагмента "fmt"
+    uint32_t        subchunk1Size;  ///< Размер первого подфрагмента
+    short           audioFormat;    ///< Формат сжатия
+    short           numChannels;    ///< Количество каналов
+    uint32_t        sampleRate;     ///< Частота дискретизации (frequency)
+    uint32_t        byteRate;       ///< Байт в секунду
+    short           bytesPerSample; ///< Байт в одном сэмпле (blockAlign)
+    short           bitsPerSample;  ///< Бит в сэмпле
+    char            subchunk2Id[4]; ///< ID второго субфрагмента "data"
+    uint32_t        subchunk2Size;  ///< Размер дорожки
 // Constructor
     wave_info_t()
     {
@@ -60,131 +117,159 @@ struct wave_info_t
 };
 #pragma pack(pop)
 
-// Скорость воспроизведения источника по умолчанию
-const float DEF_PITCH = 1.0f;
+/// Скорость воспроизведения источника по умолчанию
+const float DEF_SRC_PITCH = 1.0f;
 
-// Громкость
-const int MIN_VOLUME  = 0;
-const int DEF_VOLUME  = 100;
-const int MAX_VOLUME  = 100;
+/// Минимальная громкость источника
+const int MIN_SRC_VOLUME  = 0;
+/// Громкость источника по умолчанию
+const int DEF_SRC_VOLUME  = 100;
+/// Максимальная громкость источника
+const int MAX_SRC_VOLUME  = 100;
 
-// Положение источника по умолчанию
-const float DEF_POS[] = {0.0, 0.0, 1.0};
-// "Скорость передвижения" источника по умолчанию
-const float DEF_VEL[] = {0.0, 0.0, 0.0};
+/// Положение источника по умолчанию
+const float DEF_SRC_POS[3] = {0.0, 0.0, 1.0};
+/// "Скорость передвижения" источника по умолчанию
+const float DEF_SRC_VEL[3] = {0.0, 0.0, 0.0};
 
-
+/*!
+ * \class ASound
+ * \brief Класс реализующий создание источника звука, настройки его
+ * пространственных характеристик, загрузки аудиофайла в формате wav и
+ * последующего воспроизведения
+ */
 class ASOUNDSHARED_EXPORT ASound : public QObject
 {
     Q_OBJECT
 public:
+    /*!
+     * \brief Конструктор
+     * \param soundname - имя аудиофайла
+     */
     ASound(QString soundname, QObject* parent = Q_NULLPTR);
+    /// Деструктор
     ~ASound();
 
-//! SETTERS СЕТТЕРЫ //
-    // Установка громкости
-    void setVolume(int volume = 100);
-    // Установка скорости воспроизведения
-    void setPitch(float pitch);
-    // Установка зацикливания
-    void setLoop(bool loop);
-    // Установка позиции
-    void setPosition(float x, float y, float z);
-    // Установка "скорости передвижения"
-    void setVelocity(float x, float y, float z);
-
-//! GETTERS ГЕТТЕРЫ //
-    // Получить громкость
+    /// Вернуть громкость
     int getVolume();
-    // Получить скорость воспроизведения
+
+    /// Вернуть скорость воспроизведения
     float getPitch();
-    // Получить зацикливание
+
+    /// Вернуть флаг зацикливания
     bool getLoop();
-    // Получить позицию
+
+    /// Вернуть положение источника
     void getPosition(float &x, float &y, float &z);
-    // Получить скорость
+
+    /// Вернуть "скорость передвижения" источника
     void getVelocity(float &x, float &y, float &z);
-    // Получить последнюю ошибку
+
+    /// Вернуть последнюю ошибку
     QString getLastError();
-    // Играет ли звук
+
+    /// Играет ли звук
     bool isPlaying();
-    // Остановлен ли звук
+
+    /// Остановлен ли звук
     bool isStopped();
-    // Преостановлен ли звук
+
+    /// Преостановлен ли звук
     bool isPaused();
 
+
 public slots:
-    // Играть звук
+    /// Установить громкость
+    void setVolume(int volume = 100);
+
+    /// Установить скорости воспроизведения
+    void setPitch(float pitch);
+
+    /// Установить зацикливание
+    void setLoop(bool loop);
+
+    /// Установить положение
+    void setPosition(float x, float y, float z);
+
+    /// Установить "скорость передвижения"
+    void setVelocity(float x, float y, float z);
+
+    /// Играть звук
     void play();
-    // Преостановить звук
+
+    /// Преостановить звук
     void pause();
-    // Остановить звук
+
+    /// Остановить звук
     void stop();
-    // Установить громкость
-    void setVolumeS(int vol);
-    // Установить зацикливание
-    void setLoopS(bool loop);
+
 
 private:
     // Можно продолжать работу с файлом
-    bool canDo_;
+    bool canDo_; ///< Флаг допуска к работе с файлом
+
     // Можно играть звук
-    bool canPlay_;
+    bool canPlay_; ///< Флаг допуска к воспроизведению звука
 
     // Имя звука
-    QString soundName_;
+    QString soundName_; ///< Имя файла
+
     // Последняя ошибка
-    QString lastError_;
+    QString lastError_; ///< Текс последней ошибки
 
     // Переменная для хранения файла
-    QFile* file_;
+    QFile* file_; ///< Контейнер файла
 
     // Информация о файле .wav
-    wave_info_t wave_info_;
+    wave_info_t wave_info_; ///< Структура информации о файле
+
     // Хранилище для data секции (самой музыки) файла .wav
-    unsigned char* wavData_;
+    unsigned char* wavData_; ///< Контейнер секции data файла wav
+
     // Буфер OpenAL
-    ALuint  buffer_;
+    ALuint  buffer_; ///< Буфер OpenAL
+
     // Источник OpenAL
-    ALuint  source_;
+    ALuint  source_; ///< Источник OpenAL
+
     // Формат аудио (mono8/16 - stereo8/16) OpenAL
-    ALenum  format_;
+    ALenum  format_; ///< Формат аудио (mono8/16 - stereo8/16) OpenAL
 
-    // Хранение громкости
-    int sourceVolume_;
-    // Хранение скорости воспроизведения
-    ALfloat sourcePitch_;
-    // Хранение зацикливания
-    bool sourceLoop_;
-    // Хранение положения источника
-    ALfloat sourcePosition_[3];
-    // Хранение "скорости передвижения" источника
-    ALfloat sourceVelocity_[3];
+    // Громкость
+    int sourceVolume_; ///< Громкость
 
-    // Полная подготовка файла
+    // Скорости воспроизведения
+    ALfloat sourcePitch_; ///< Скорость воспроизведения
+
+    // Флаг зацикливания
+    bool sourceLoop_; ///< Флаг зацикливания
+
+    // Положение источника
+    ALfloat sourcePosition_[3]; ///< Положение источника
+
+    // "Скорость передвижения" источника
+    ALfloat sourceVelocity_[3]; ///< "Скорость передвижения" источника
+
+    /// Полная подготовка файла
     void loadSound_(QString soundname);
-    // Загрузка файла (в т.ч. из ресурсов)
-    void loadFile_(QString soundname);
-    // Чтение информации в файле .wav
-    void readWaveInfo_();
-    // Определение формата аудио (mono8/16 - stereo8/16)
-    void defineFormat_();
-    // Генерируем буфер и источник
-    void generateStuff_();
-    // Настраиваем источник
-    void configureSource_();
-    // Метод проверки необходимых параметров
-    void checkValue(std::string baseStr, const char targStr[], QString err);
-};
 
-class ASOUNDSHARED_EXPORT AListener
-{
-public:
-    static AListener &getInstance();
-private:
-    AListener();
-    ALCdevice* device_;
-    ALCcontext* context_;
+    /// Загрузка файла (в т.ч. из ресурсов)
+    void loadFile_(QString soundname);
+
+    /// Чтение информации в файле .wav
+    void readWaveInfo_();
+
+    /// Определение формата аудио (mono8/16 - stereo8/16)
+    void defineFormat_();
+
+    /// Генерация буфера и источника
+    void generateStuff_();
+
+    /// Настройка источника
+    void configureSource_();
+
+    /// Метод проверки необходимых параметров
+    void checkValue(std::string baseStr, const char targStr[], QString err);
 };
 
 #endif // ASOUND_H
