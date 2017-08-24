@@ -9,6 +9,7 @@
 
 #include "asound.h"
 #include <QFile>
+#include <QTimer>
 
 // ****************************************************************************
 // *                         Класс AListener                                  *
@@ -379,6 +380,23 @@ void ASound::configureSource_()
 
 
 //-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+int ASound::getDuration()
+{
+    if (canDo_)
+    {
+        double subchunk2Size = wave_info_.subchunk2Size;
+        double byteRate = wave_info_.byteRate;
+        int duration = subchunk2Size/byteRate*100.0;
+        return 10*duration;
+    }
+    return 0;
+}
+
+
+
+//-----------------------------------------------------------------------------
 // (слот) Установить громкость
 //-----------------------------------------------------------------------------
 void ASound::setVolume(int volume)
@@ -617,4 +635,156 @@ void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
             canDo_ = false;
         }
     }
+}
+
+
+
+
+//-----------------------------------------------------------------------------
+//
+//      Класс управления очередью запуска звуков
+//      (c) РГУПС, ВЖД 17/08/2017
+//      Разработал: Ковшиков С. В.
+//
+//-----------------------------------------------------------------------------
+/*!
+ *  \file
+ *  \brief Класс управления очередью запуска звуков
+ *  \copyright РУГПС, ВЖД
+ *  \author Ковшиков С. В.
+ *  \date 17/08/2017
+ */
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+ASoundController::ASoundController(QObject *parent)
+    : QObject(parent)
+    , prepared_(false)
+    , currentSound_(-1)
+    , timerMain_(Q_NULLPTR)
+{
+    timerMain_ = new QTimer(this);
+    timerMain_->setSingleShot(true);
+    connect(timerMain_, SIGNAL(timeout()),
+            this, SLOT(onTimerMain()));
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+ASoundController::~ASoundController()
+{
+
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+ASound* ASoundController::appendSound(ASound *soundPtr)
+{
+    if (soundPtr)
+    {
+        listSounds_.append(soundPtr);
+    }
+
+    return soundPtr;
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+ASound* ASoundController::appendSound(QString soundPath)
+{
+    listSounds_.append(new ASound(soundPath, this));
+    QString zu = listSounds_.last()->getLastError();
+    return listSounds_.last();
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+void ASoundController::prepare()
+{
+    if (listSounds_.empty())
+        return;
+
+    currentSound_ = 0;
+    if (!listSounds_.first()->getLoop())
+    {
+        timerMain_->setInterval(listSounds_.first()->getDuration());
+        int zu = listSounds_.first()->getDuration();
+        zu = zu;
+    }
+    prepared_ = true;
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+void ASoundController::begin()
+{
+    if (prepared_)
+    {
+        if (!listSounds_[currentSound_]->isPlaying())
+        {
+            timerMain_->start();
+            listSounds_.first()->play();
+        }
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+void ASoundController::end()
+{
+    if (prepared_ && listSounds_[currentSound_]->isPlaying())
+    {
+        ++currentSound_;
+        listSounds_[currentSound_]->play();
+        listSounds_[currentSound_ - 1]->stop();
+        currentSound_ = 0;
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+void ASoundController::stop()
+{
+    timerMain_->stop();
+    foreach (ASound* sound , listSounds_)
+    {
+        sound->stop();
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+//
+//-----------------------------------------------------------------------------
+void ASoundController::onTimerMain()
+{
+    ++currentSound_;
+    listSounds_[currentSound_]->play();
+
+    if (currentSound_ > 0)
+        listSounds_[currentSound_ - 1]->stop();
 }

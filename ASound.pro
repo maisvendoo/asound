@@ -29,7 +29,7 @@ win32{
 }
 
 unix{
-    LIBS += -lopenal;
+    LIBS += -lopenal
     INCLUDEPATH += /usr/include/AL
 }
 

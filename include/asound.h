@@ -21,6 +21,7 @@
 #include <alc.h>
 
 class QFile;
+class QTimer;
 
 
 #if defined(ASOUND_LIBRARY)
@@ -177,6 +178,9 @@ public:
     /// Приостановлен ли звук
     bool isPaused();
 
+    /// Длительность звука в секундах
+    int getDuration();
+
 
 public slots:
     /// Установить громкость
@@ -270,6 +274,76 @@ private:
 
     /// Метод проверки необходимых параметров
     void checkValue(std::string baseStr, const char targStr[], QString err);
+};
+
+
+
+
+//-----------------------------------------------------------------------------
+//
+//      Класс управления очередью запуска звуков
+//      (c) РГУПС, ВЖД 17/08/2017
+//      Разработал: Ковшиков С. В.
+//
+//-----------------------------------------------------------------------------
+/*!
+ *  \file
+ *  \brief Класс управления очередью запуска звуков
+ *  \copyright РУГПС, ВЖД
+ *  \author Ковшиков С. В.
+ *  \date 17/08/2017
+ */
+
+/*!
+ * \brief Класс управления очередью запуска звуков
+ * \class ASoundController
+ */
+class ASOUNDSHARED_EXPORT ASoundController : QObject
+{
+    Q_OBJECT
+
+public:
+    ///
+    ASoundController(QObject* parent = Q_NULLPTR);
+    ///
+    ~ASoundController();
+
+    ///
+    ASound* appendSound(ASound* soundPtr);
+
+    ///
+    ASound* appendSound(QString soundPath);
+
+    ///
+    void prepare();
+
+    ///
+    void begin();
+
+    ///
+    void end();
+
+    ///
+    void stop();
+
+
+private slots:
+    ///
+    void onTimerMain();
+
+
+private:
+    ///
+    bool prepared_;
+
+    ///
+    int currentSound_;
+
+    ///
+    QList<ASound*> listSounds_;
+
+    ///
+    QTimer* timerMain_;
 };
 
 #endif // ASOUND_H
