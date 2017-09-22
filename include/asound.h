@@ -51,6 +51,9 @@ public:
     /// Статический метод запрещающий повторное создание экземпляра класса
     static AListener &getInstance();
 
+    ///
+    void closeDevices();
+
 
 private:
     /// Конструктор (priate!)
