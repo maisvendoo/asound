@@ -668,24 +668,29 @@ void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
 
 
 //-----------------------------------------------------------------------------
-//
+// Конструктор
 //-----------------------------------------------------------------------------
 ASoundController::ASoundController(QObject *parent)
     : QObject(parent)
     , prepared_(false)
-    , currentSound_(-1)
-    , timerMain_(Q_NULLPTR)
+    , running_(false)
+    , currentPhaseIndex_(0)
+    , soundBegin_(Q_NULLPTR)
+    , soundEnd_(Q_NULLPTR)
+    , timerSoundChanger_(Q_NULLPTR)
 {
-    timerMain_ = new QTimer(this);
-    timerMain_->setSingleShot(true);
-    connect(timerMain_, SIGNAL(timeout()),
-            this, SLOT(onTimerMain()));
+    timerSoundChanger_ = new QTimer(this);
+    timerSoundChanger_->setSingleShot(true);
+//    connect(timerMain_, SIGNAL(timeout()),
+//            this, SLOT(onTimerMain()));
+    connect(timerSoundChanger_, SIGNAL(timeout()),
+            this, SLOT(onTimerSoundChanger()));
 }
 
 
 
 //-----------------------------------------------------------------------------
-//
+// Деструктор
 //-----------------------------------------------------------------------------
 ASoundController::~ASoundController()
 {
@@ -693,65 +698,134 @@ ASoundController::~ASoundController()
 }
 
 
-
 //-----------------------------------------------------------------------------
-//
+// Установить звук запуска
 //-----------------------------------------------------------------------------
-ASound* ASoundController::appendSound(ASound *soundPtr)
+void ASoundController::setSoundBegin(QString soundPath)
 {
-    if (soundPtr)
+    prepared_ = false;
+
+    ASound* buf = new ASound(soundPath, this);
+
+    if (buf->getLastError().isEmpty())
     {
-        listSounds_.append(soundPtr);
+        if (soundBegin_)
+            delete soundBegin_;
+        soundBegin_ = buf;
+    }
+    else
+    {
+        delete buf;
     }
 
-    return soundPtr;
+    prepare_();
 }
 
 
 
 //-----------------------------------------------------------------------------
-//
+// Добавить звук процесса работы
 //-----------------------------------------------------------------------------
-ASound* ASoundController::appendSound(QString soundPath)
+void ASoundController::appendSoundRunning(QString soundPath)
 {
-    listSounds_.append(new ASound(soundPath, this));
-    QString zu = listSounds_.last()->getLastError();
-    return listSounds_.last();
-}
+    prepared_ = false;
 
+    ASound* buf = new ASound(soundPath, this);
 
-
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-void ASoundController::prepare()
-{
-    if (listSounds_.empty())
-        return;
-
-    currentSound_ = 0;
-    if (!listSounds_.first()->getLoop())
+    if (buf->getLastError().isEmpty())
     {
-        timerMain_->setInterval(listSounds_.first()->getDuration());
-        int zu = listSounds_.first()->getDuration();
-        zu = zu;
+        listRunningSounds_.append(buf);
+        listRunningSounds_.last()->setLoop(true);
     }
-    prepared_ = true;
+    else
+    {
+        delete buf;
+    }
+
+    prepare_();
 }
 
 
 
 //-----------------------------------------------------------------------------
-//
+// Установить список звуков процесса работы
+//-----------------------------------------------------------------------------
+void ASoundController::setSoundsRunning(QStringList soundPaths)
+{
+    prepared_ = false;
+
+    clearRunningSoundsList_();
+
+    for (QString path : soundPaths)
+    {
+        ASound* buf = new ASound(path, this);
+
+        if (buf->getLastError().isEmpty())
+        {
+            listRunningSounds_.append(buf);
+            listRunningSounds_.last()->setLoop(true);
+        }
+        else
+        {
+            delete buf;
+        }
+    }
+
+    prepare_();
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Установить звук остановки
+//-----------------------------------------------------------------------------
+void ASoundController::setSoundEnd(QString soundPath)
+{
+    prepared_ = false;
+
+    ASound* buf = new ASound(soundPath, this);
+
+    if (buf->getLastError().isEmpty())
+    {
+        if (soundEnd_)
+            delete soundEnd_;
+        soundEnd_ = new ASound(soundPath, this);
+    }
+
+    prepare_();
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Запустить алгоритм воспроизведения (запуск устройства)
 //-----------------------------------------------------------------------------
 void ASoundController::begin()
 {
-    if (prepared_)
+    if (prepared_ && !running_ && !beginning_)
     {
-        if (!listSounds_[currentSound_]->isPlaying())
+        beginning_ = true;
+
+        timerSoundChanger_->start();
+        soundBegin_->play();
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Установить звук процесса работы
+//-----------------------------------------------------------------------------
+void ASoundController::switchRunningSound(int phase)
+{
+    if (running_)
+    {
+        if (phase < listRunningSounds_.count() && phase != currentPhaseIndex_)
         {
-            timerMain_->start();
-            listSounds_.first()->play();
+            listRunningSounds_[phase]->setPitch(soundPicth_);
+            listRunningSounds_[phase]->play();
+            listRunningSounds_[currentPhaseIndex_]->stop();
+            currentPhaseIndex_ = phase;
         }
     }
 }
@@ -759,28 +833,46 @@ void ASoundController::begin()
 
 
 //-----------------------------------------------------------------------------
-//
+// Установить скорость воспроизведения
 //-----------------------------------------------------------------------------
-void ASoundController::end()
+void ASoundController::setPitch(float pitch)
 {
-    if (prepared_ && listSounds_[currentSound_]->isPlaying())
+    soundPicth_ = pitch;
+
+    if (running_)
     {
-        ++currentSound_;
-        listSounds_[currentSound_]->play();
-        listSounds_[currentSound_ - 1]->stop();
-        currentSound_ = 0;
+        listRunningSounds_[currentPhaseIndex_]->setPitch(pitch);
     }
 }
 
 
 
 //-----------------------------------------------------------------------------
-//
+// Завершить алгоритм воспроизведения (остановка устройства)
 //-----------------------------------------------------------------------------
-void ASoundController::stop()
+void ASoundController::end()
 {
-    timerMain_->stop();
-    foreach (ASound* sound , listSounds_)
+    if (running_)
+    {
+        timerSoundChanger_->stop();
+        soundEnd_->play();
+        soundBegin_->stop();
+        listRunningSounds_[currentPhaseIndex_]->stop();
+        running_ = false;
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Аварийно завершить алгоритм вопсроизведения в любой момент
+//-----------------------------------------------------------------------------
+void ASoundController::forcedStop()
+{
+    timerSoundChanger_->stop();
+    soundBegin_->stop();
+    running_ = false;
+    for (ASound* sound : listRunningSounds_)
     {
         sound->stop();
     }
@@ -789,13 +881,46 @@ void ASoundController::stop()
 
 
 //-----------------------------------------------------------------------------
-//
+// Слот обработки таймера переключения звуков
 //-----------------------------------------------------------------------------
-void ASoundController::onTimerMain()
+void ASoundController::onTimerSoundChanger()
 {
-    ++currentSound_;
-    listSounds_[currentSound_]->play();
+    currentPhaseIndex_ = 0;
+    listRunningSounds_[currentPhaseIndex_]->play();
+    beginning_ = false;
+    running_ = true;
+}
 
-    if (currentSound_ > 0)
-        listSounds_[currentSound_ - 1]->stop();
+
+
+//-----------------------------------------------------------------------------
+// Проверить готовность всех звуков
+//-----------------------------------------------------------------------------
+void ASoundController::prepare_()
+{
+    if ( (soundBegin_ != Q_NULLPTR) &&
+         (soundEnd_ != Q_NULLPTR) &&
+         (listRunningSounds_.count() > 0) )
+    {
+        timerSoundChanger_->setInterval(soundBegin_->getDuration());
+        prepared_ = true;
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Очистить список фаз процесса работы
+//-----------------------------------------------------------------------------
+void ASoundController::clearRunningSoundsList_()
+{
+    if (listRunningSounds_.isEmpty())
+        return;
+
+    for (ASound* sound : listRunningSounds_)
+    {
+        delete sound;
+    }
+
+    listRunningSounds_.clear();
 }

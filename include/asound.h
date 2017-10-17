@@ -306,47 +306,79 @@ class ASOUNDSHARED_EXPORT ASoundController : QObject
     Q_OBJECT
 
 public:
-    ///
+    /// Конструктор
     ASoundController(QObject* parent = Q_NULLPTR);
-    ///
+    /// Деструктор
     ~ASoundController();
 
-    ///
-    ASound* appendSound(ASound* soundPtr);
+    /// Установить звук запуска
+    void setSoundBegin(QString soundPath);
 
-    ///
-    ASound* appendSound(QString soundPath);
+    /// Добавить звук процесса работы
+    void appendSoundRunning(QString soundPath);
 
-    ///
-    void prepare();
+    /// Установить список звуков процесса работы
+    void setSoundsRunning(QStringList soundPaths);
 
-    ///
+    /// Установить звук остановки
+    void setSoundEnd(QString soundPath);
+
+
+public slots:
+    /// Запустить алгоритм воспроизведения (запуск устройства)
     void begin();
 
-    ///
+    /// Установить звук процесса работы
+    void switchRunningSound(int phase);
+
+    /// Установить скорость воспроизведения
+    void setPitch(float pitch);
+
+    /// Завершить алгоритм воспроизведения (остановка устройства)
     void end();
 
-    ///
-    void stop();
+    /// Аварийно завершить алгоритм вопсроизведения в любой момент
+    void forcedStop();
 
 
 private slots:
-    ///
-    void onTimerMain();
+    /// Слот обработки таймера переключения звуков
+    void onTimerSoundChanger();
 
 
 private:
-    ///
+    /// Флаг готовности
     bool prepared_;
 
-    ///
-    int currentSound_;
+    /// Флаг запуска устройства
+    bool beginning_;
 
-    ///
-    QList<ASound*> listSounds_;
+    /// Флаг проигрывания
+    bool running_;
 
-    ///
-    QTimer* timerMain_;
+    /// Индекс текущей фазы звука
+    int currentPhaseIndex_;
+
+    /// Скорость воспроизведения
+    float soundPicth_;
+
+    /// Звук включения системы
+    ASound* soundBegin_;
+
+    /// Список фаз процесса работы
+    QList<ASound*> listRunningSounds_;
+
+    /// Звук выключения системы
+    ASound* soundEnd_;
+
+    /// Таймер перехода от включения к процессу работы
+    QTimer* timerSoundChanger_;
+
+    /// Проверить готовность всех звуков
+    void prepare_();
+
+    /// Очистить список фаз процесса работы
+    void clearRunningSoundsList_();
 };
 
 #endif // ASOUND_H
