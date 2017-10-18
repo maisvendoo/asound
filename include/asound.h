@@ -301,7 +301,7 @@ private:
  * \brief Класс управления очередью запуска звуков
  * \class ASoundController
  */
-class ASOUNDSHARED_EXPORT ASoundController : QObject
+class ASOUNDSHARED_EXPORT ASoundController : public QObject
 {
     Q_OBJECT
 
