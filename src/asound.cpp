@@ -673,16 +673,17 @@ void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
 ASoundController::ASoundController(QObject *parent)
     : QObject(parent)
     , prepared_(false)
+    , beginning_(false)
     , running_(false)
-    , currentPhaseIndex_(0)
+    , currentSoundIndex_(0)
+    , soundPitch_(1.0f)
+    , soundVolume_(100)
     , soundBegin_(Q_NULLPTR)
     , soundEnd_(Q_NULLPTR)
     , timerSoundChanger_(Q_NULLPTR)
 {
     timerSoundChanger_ = new QTimer(this);
     timerSoundChanger_->setSingleShot(true);
-//    connect(timerMain_, SIGNAL(timeout()),
-//            this, SLOT(onTimerMain()));
     connect(timerSoundChanger_, SIGNAL(timeout()),
             this, SLOT(onTimerSoundChanger()));
 }
@@ -696,6 +697,7 @@ ASoundController::~ASoundController()
 {
 
 }
+
 
 
 //-----------------------------------------------------------------------------
@@ -712,6 +714,7 @@ void ASoundController::setSoundBegin(QString soundPath)
         if (soundBegin_)
             delete soundBegin_;
         soundBegin_ = buf;
+        soundBegin_->setVolume(soundVolume_);
     }
     else
     {
@@ -789,7 +792,8 @@ void ASoundController::setSoundEnd(QString soundPath)
     {
         if (soundEnd_)
             delete soundEnd_;
-        soundEnd_ = new ASound(soundPath, this);
+        soundEnd_ = buf;
+        soundEnd_->setVolume(soundVolume_);
     }
 
     prepare_();
@@ -816,32 +820,19 @@ void ASoundController::begin()
 //-----------------------------------------------------------------------------
 // Установить звук процесса работы
 //-----------------------------------------------------------------------------
-void ASoundController::switchRunningSound(int phase)
+void ASoundController::switchRunningSound(int index)
 {
     if (running_)
     {
-        if (phase < listRunningSounds_.count() && phase != currentPhaseIndex_)
+        if (index < listRunningSounds_.count() && index != currentSoundIndex_)
         {
-            listRunningSounds_[phase]->setPitch(soundPicth_);
-            listRunningSounds_[phase]->play();
-            listRunningSounds_[currentPhaseIndex_]->stop();
-            currentPhaseIndex_ = phase;
+            ASound* buf = listRunningSounds_[index];
+            buf->setPitch(soundPitch_);
+            buf->setVolume(soundVolume_);
+            buf->play();
+            listRunningSounds_[currentSoundIndex_]->stop();
+            currentSoundIndex_ = index;
         }
-    }
-}
-
-
-
-//-----------------------------------------------------------------------------
-// Установить скорость воспроизведения
-//-----------------------------------------------------------------------------
-void ASoundController::setPitch(float pitch)
-{
-    soundPicth_ = pitch;
-
-    if (running_)
-    {
-        listRunningSounds_[currentPhaseIndex_]->setPitch(pitch);
     }
 }
 
@@ -852,13 +843,54 @@ void ASoundController::setPitch(float pitch)
 //-----------------------------------------------------------------------------
 void ASoundController::end()
 {
-    if (running_)
+    if (running_ || beginning_)
     {
         timerSoundChanger_->stop();
         soundEnd_->play();
         soundBegin_->stop();
-        listRunningSounds_[currentPhaseIndex_]->stop();
+        listRunningSounds_[currentSoundIndex_]->stop();
+        beginning_ = false;
         running_ = false;
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Установить скорость воспроизведения
+//-----------------------------------------------------------------------------
+void ASoundController::setPitch(float pitch)
+{
+    soundPitch_ = pitch;
+
+    if (running_)
+    {
+        listRunningSounds_[currentSoundIndex_]->setPitch(pitch);
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Установить громкость 0 - 100
+//-----------------------------------------------------------------------------
+void ASoundController::setVolume(int volume)
+{
+    soundVolume_ = volume;
+
+    if (soundBegin_)
+    {
+        soundBegin_->setVolume(volume);
+    }
+
+    if (soundEnd_)
+    {
+        soundEnd_->setVolume(volume);
+    }
+
+    if (running_)
+    {
+        listRunningSounds_[currentSoundIndex_]->setVolume(volume);
     }
 }
 
@@ -885,8 +917,11 @@ void ASoundController::forcedStop()
 //-----------------------------------------------------------------------------
 void ASoundController::onTimerSoundChanger()
 {
-    currentPhaseIndex_ = 0;
-    listRunningSounds_[currentPhaseIndex_]->play();
+    currentSoundIndex_ = 0;
+    ASound* buf = listRunningSounds_[currentSoundIndex_];
+    buf->setPitch(soundPitch_);
+    buf->setVolume(soundVolume_);
+    buf->play();
     beginning_ = false;
     running_ = true;
 }

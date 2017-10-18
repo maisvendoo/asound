@@ -35,11 +35,11 @@ class QTimer;
 // Класс AListener
 //-----------------------------------------------------------------------------
 /// Положение слушателя по умолчанию
-const float DEF_LSN_POS[3] = {0.0, 0.0, 0.0};
+const float DEF_LSN_POS[3] = {0.0f, 0.0f, 0.0f};
 /// "Скорость передвижения" слушателя по умолчанию
-const float DEF_LSN_VEL[3] = {0.0, 0.0, 0.0};
+const float DEF_LSN_VEL[3] = {0.0f, 0.0f, 0.0f};
 /// Направление слушателя по умолчанию
-const float DEF_LSN_ORI[6] = {0.0, 0.0, -1.0, 0.0, 1.0, 0.0};
+const float DEF_LSN_ORI[6] = {0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f};
 
 /*!
  * \class AListener
@@ -132,9 +132,9 @@ const int DEF_SRC_VOLUME  = 100;
 const int MAX_SRC_VOLUME  = 100;
 
 /// Положение источника по умолчанию
-const float DEF_SRC_POS[3] = {0.0, 0.0, 1.0};
+const float DEF_SRC_POS[3] = {0.0f, 0.0f, 1.0f};
 /// "Скорость передвижения" источника по умолчанию
-const float DEF_SRC_VEL[3] = {0.0, 0.0, 0.0};
+const float DEF_SRC_VEL[3] = {0.0f, 0.0f, 0.0f};
 
 /*!
  * \class ASound
@@ -329,13 +329,16 @@ public slots:
     void begin();
 
     /// Установить звук процесса работы
-    void switchRunningSound(int phase);
+    void switchRunningSound(int index);
+
+    /// Завершить алгоритм воспроизведения (остановка устройства)
+    void end();
 
     /// Установить скорость воспроизведения
     void setPitch(float pitch);
 
-    /// Завершить алгоритм воспроизведения (остановка устройства)
-    void end();
+    /// Установить громкость 0 - 100
+    void setVolume(int volume);
 
     /// Аварийно завершить алгоритм вопсроизведения в любой момент
     void forcedStop();
@@ -357,10 +360,13 @@ private:
     bool running_;
 
     /// Индекс текущей фазы звука
-    int currentPhaseIndex_;
+    int currentSoundIndex_;
 
     /// Скорость воспроизведения
-    float soundPicth_;
+    float soundPitch_;
+
+    /// Громкость воспроизведения
+    int soundVolume_;
 
     /// Звук включения системы
     ASound* soundBegin_;
