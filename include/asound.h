@@ -17,8 +17,8 @@
 #define ASOUND_H
 
 #include <QObject>
-#include <al.h>
-#include <alc.h>
+#include <AL/al.h>
+#include <AL/alc.h>
 
 class QFile;
 class QTimer;

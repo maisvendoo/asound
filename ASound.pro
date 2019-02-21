@@ -7,10 +7,10 @@
 QT       -= gui
 
 CONFIG(debug, debug|release){
-    TARGET = ASoundd
+    TARGET = asound_d
     DESTDIR = ../../lib
 } else {
-    TARGET = ASound
+    TARGET = asound
     DESTDIR = ../../lib
 }
 
@@ -23,12 +23,18 @@ VPATH += src/
 
 SOURCES += $$files(src/*.cpp)
 HEADERS += $$files(include/*.h)
+
 win32{
-    LIBS += -L'C:/Program Files (x86)/OpenAL 1.1 SDK/libs/Win64/' -lOpenAL32
-    INCLUDEPATH += 'C:/Program Files (x86)/OpenAL 1.1 SDK/include'
+
+    OPENAL_LIB_DIR = $$(OPENAL_BIN)
+    OPENAL_INCLUDE_BIN = $$(OPENAL_INCLUDE)
+
+    LIBS += -L$$OPENAL_LIB_DIR -lOpenAL32
+    INCLUDEPATH += $$OPENAL_INCLUDE_BIN
 }
 
 unix{
+
     LIBS += -lopenal
     INCLUDEPATH += /usr/include/AL
 }
