@@ -8,6 +8,7 @@
 
 
 #include "asound.h"
+#include "asound-log.h"
 #include <QFile>
 #include <QTimer>
 
@@ -20,9 +21,9 @@
 AListener::AListener()
 {
     // Открываем устройство
-    device_ = alcOpenDevice(NULL);
+    device_ = alcOpenDevice(nullptr);
     // Создаём контекст
-    context_ = alcCreateContext(device_, NULL);
+    context_ = alcCreateContext(device_, nullptr);
     // Устанавливаем текущий контекст
     alcMakeContextCurrent(context_);
 
@@ -39,6 +40,8 @@ AListener::AListener()
     alListenerfv(AL_VELOCITY,    listenerVelocity_);
     // Устанавливаем направление слушателя
     alListenerfv(AL_ORIENTATION, listenerOrientation_);
+
+    log_ = new LogFileHandler("asound.log");
 }
 
 
@@ -77,21 +80,31 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
     canDo_(false),              // Сбрасываем флаг
     canPlay_(false),            // Сбрасываем флаг
     soundName_(soundname),      // Сохраняем название звука
-    wavData_(NULL),             // Обнуляем массив дорожки
-    buffer_(0),                 // Обнуляем буффер
     source_(0),                 // Обнуляем источник
     format_(0),                 // Обнуляем формат
     sourceVolume_(DEF_SRC_VOLUME),  // Громкость по умолч.
     sourcePitch_(DEF_SRC_PITCH),    // Скорость воспроизведения по умолч.
     sourceLoop_(false)         // Зацикливание по-умолч.
-{
+{ 
     // Инициализируем позицию источника
     memcpy(sourcePosition_, DEF_SRC_POS, 3 * sizeof(float));
     // Инициализируем вектор "скорости передвижения" источника
     memcpy(sourceVelocity_, DEF_SRC_VEL, 3 * sizeof(float));
-
     // Создаём контейнер аудиофайла
     file_ = new QFile();
+
+    // Зануляем все буферы и блоки данных
+    for (int i = 0; i < BUFFER_BLOCKS; ++i)
+    {
+        wavData_[i] = nullptr;
+        buffer_[i] = 0;
+        blockSize_[i] = 0;
+    }
+
+    connect(this, &ASound::notify, AListener::getInstance().log_, &LogFileHandler::notify);
+
+    emit notify("T Load sound: " + soundname.toStdString());
+
     // Загружаем звук
     loadSound_(soundname);
 }
@@ -103,15 +116,27 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
 //-----------------------------------------------------------------------------
 ASound::~ASound()
 {
-    if (wavData_)
-    {
-        // Контейнер секции data файла wav
-        delete[] wavData_;
-    }
+    // Удаляем контейнеры данных
+    deleteWAVEDataContainers();
+
     // Удаляем источник
     alDeleteSources(1, &source_);
     // Удаляем буфер
-    alDeleteBuffers(1, &buffer_);
+    alDeleteBuffers(BUFFER_BLOCKS, buffer_);
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Очистка контейнеров данных дорожки
+//-----------------------------------------------------------------------------
+void ASound::deleteWAVEDataContainers()
+{
+    for (int i = 0; i < BUFFER_BLOCKS; ++i)
+    {
+        if (wavData_[i])
+            delete wavData_[i];
+    }
 }
 
 
@@ -124,6 +149,8 @@ void ASound::loadSound_(QString soundname)
     // Сбрасываем флаги
     canDo_ = false;
     canPlay_ = false;
+    canCUE_ = false;
+    canLABL_ = false;
 
     // Сохраняем название звука
     soundName_ = soundname;
@@ -193,17 +220,14 @@ void ASound::readWaveInfo_()
     if (canDo_)
     {
         // Если ранее был загружен другой файл
-        if (wavData_)
-        {
-            delete[] wavData_;
-        }
+        deleteWAVEDataContainers();
 
         // Читаем все 44 байта информации в массив
         QByteArray arr = file_->read(sizeof(wave_info_t));
 
         // Переносим все значения из массива в струтуру
-        memcpy((unsigned char*) &wave_info_,
-               (unsigned char*) arr.data(),
+        memcpy(&wave_info_,
+               arr.data(),
                sizeof(wave_info_t));
 
         // ////////////////////////////////////////////// //
@@ -216,20 +240,179 @@ void ASound::readWaveInfo_()
         checkValue(wave_info_.subchunk1Id, "fmt", "NO_fmt");
         checkValue(wave_info_.subchunk2Id, "data", "NO_data");
 
+        emit notify("| - File size: " + QString::number(file_->size()).toStdString());
+        emit notify("| - File data size: " + QString::number(wave_info_.subchunk2Size).toStdString());
+        emit notify("| - Byterate: " + QString::number(wave_info_.byteRate).toStdString());
+        emit notify("| - Sample rate: " + QString::number(wave_info_.sampleRate).toStdString());
+        emit notify("| - File data size: " + QString::number(wave_info_.numChannels).toStdString());
+        emit notify("| - Bits per sample: " + QString::number(wave_info_.bitsPerSample).toStdString());
+        emit notify("| - Bytes per sample: " + QString::number(wave_info_.bytesPerSample).toStdString());
+
         if (canDo_)
         {
             // Читаем из файла сами медиа данные зная их размер
             arr = file_->read(wave_info_.subchunk2Size);
+            // Читаем оставшуюся информацию из WAVE файла
+            uint32_t extraBlockSize =
+                    static_cast<uint32_t>(file_->size()) - wave_info_.subchunk2Size - sizeof(wave_info_t);
+            QByteArray arrDop = file_->read(extraBlockSize);
+
+            getCUE_(arrDop);
+
+            if (canCUE_)
+                getLabels_(arrDop);
+
+            // Итератор для data и сдвиг точки копирования в блоке данных звука
+            int32_t i = 0, data_offset = 0;
+            // Массив байтов текущего блока для копирования в data
+            QByteArray blockData;
+            // Если присутствуют метки - грузим их в три буфера
+            if (canLABL_)
+            {
+                QMap<QString, uint64_t>::const_iterator labl_map = wave_labels_.constBegin();
+                while (labl_map != wave_labels_.constEnd()) {
+                    if (labl_map.key() == "loop" || labl_map.key() == "stop")
+                    {
+                        blockSize_[i] = labl_map.value() - static_cast<uint64_t>(data_offset);
+                        wavData_[i] = new unsigned char[blockSize_[i]];
+                        blockData = arr.mid(data_offset, static_cast<int32_t>(labl_map.value()));
+                        memcpy(wavData_[i], blockData.data(),
+                               blockSize_[i]);
+                        data_offset += blockSize_[i];
+                    }
+                    ++labl_map;
+                    ++i;
+                }
+            }
+
             // Создаем массив для данных
-            wavData_ = new unsigned char[wave_info_.subchunk2Size];
+            blockSize_[i] = wave_info_.subchunk2Size - static_cast<uint32_t>(data_offset);
+            wavData_[i] = new unsigned char[blockSize_[i]];
+            blockData = arr.mid(data_offset, static_cast<int>(blockSize_[i]));
             // Переносим данные в массив
-            memcpy((unsigned char*) wavData_,
-                   (unsigned char*) arr.data(),
-                   wave_info_.subchunk2Size);
+            memcpy(wavData_[i], blockData.data(),
+                   blockSize_[i]);
+            ++i;
+            emit notify("| - Buffer blocks: " + QString::number(i).toStdString());
+
+            for (int i = 0; i < BUFFER_BLOCKS; ++i)
+            {
+                emit notify("| - Block #" + QString::number(i).toStdString() +
+                            " size: " + QString::number(blockSize_[i]).toStdString());
+            }
+
+            // Закрываем файл
+            file_->close();
+        }
+    }
+}
+
+
+//-----------------------------------------------------------------------------
+// Получение фрагмента CUE *.WAVE формата
+//-----------------------------------------------------------------------------
+void ASound::getCUE_(QByteArray &baseStr)
+{
+    QByteArray cueChunckID("cue ");
+    // Находим заголовок фрагмента cue
+    int cueFirstByte = baseStr.indexOf(cueChunckID);
+    // Если заголовок был найден
+    if (cueFirstByte != -1)
+    {
+        // Загружаем во временный массив "шапку" фрагмента cue
+        QByteArray tmp_data = baseStr.mid(cueFirstByte,
+                                          sizeof(wave_cue_head_t));
+        // Загружаем данные в структуру
+        memcpy(&cue_head_, tmp_data.data(), sizeof(wave_cue_head_t));
+        // Создаем временную структуру данных фрагмента cue
+        wave_cue_data_t cue_data_t_;
+        // Вычисляем смещение к первому блоку данных фрагмента cue
+        int cue_data_offset = cueFirstByte + static_cast<int>(sizeof(wave_cue_head_t));
+        // В цикле загружаем все данные точек cue
+        for (int i = 1; i <= static_cast<int>(cue_head_.cueChunckPNum); ++i)
+        {
+            // Во временный массив - блок данных cue
+            tmp_data = baseStr.mid(cue_data_offset,
+                                   sizeof (wave_cue_data_t));
+            // Данные во временную структуру
+            memcpy(&cue_data_t_, tmp_data.data(),
+                   sizeof(wave_cue_data_t));
+            // Временную структуру в общий список cue-точек
+            cue_data_.append(cue_data_t_);
+            // Смещение к следующей точку cue
+            cue_data_offset += static_cast<int>(sizeof(wave_cue_data_t));
         }
 
-        // Закрываем файл
-        file_->close();
+        canCUE_ = true;
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Получение меток из фрагмента LIST->labls *.WAVE формата
+//-----------------------------------------------------------------------------
+void ASound::getLabels_(QByteArray &baseStr)
+{
+    QByteArray listChunckID("LIST");
+    // Некоторые программы сохраняют фрагмент LIST - маленькими буквами
+    QByteArray listChunckIDLower("list");
+    // Номер первого байта списка
+    int listFirstByte = baseStr.indexOf(listChunckID);
+    listFirstByte =
+            (listFirstByte == -1 ?
+                 baseStr.indexOf(listChunckIDLower) : listFirstByte);
+    // Если был найден список в строке
+    if (listFirstByte != -1)
+    {
+        // Загружаем во временный массив блок "шапки" фрагмента LIST
+        QByteArray tmp_data = baseStr.mid(listFirstByte,
+                                          sizeof(wave_list_head_t));
+        // Данные со временного массива - в структуру
+        memcpy(&list_head_, tmp_data.data(),
+               sizeof(wave_list_head_t));
+        // Временный экземпляр структуры данных
+        wave_cue_data_t cue_data_t_;
+        uint32_t i = 1; // Итератор
+        // Chunck ID для подфрагмента labl
+        QByteArray lablChunckId("labl");
+        int labelOffset = 0;
+        // Крутим пока не достигнем конца блока LIST
+        while (static_cast<int>(list_head_.dataSize) >= labelOffset)
+        {
+            tmp_data = baseStr.mid(listFirstByte + static_cast<int>(sizeof(wave_list_head_t)) +
+                                   labelOffset, sizeof(wave_label_data_t) + 6);
+
+            if (tmp_data.indexOf(lablChunckId) != -1)
+            {
+                memcpy(&label_data_, tmp_data.data(),
+                       sizeof(wave_label_data_t));
+
+                tmp_data = tmp_data.mid(12, static_cast<int>(label_data_.lablChunckSize) - 5);
+
+                std::string labelName = tmp_data.data();
+                labelOffset += labelName.size() + (labelName.size() % 2 == 0 ? 2 : 1);
+
+                int index = 0;
+
+                for (int k = 0; k < cue_data_.count(); ++k)
+                {
+                    if (cue_data_[k].ID == label_data_.lablCueID)
+                    {
+                        index = k;
+                        break;
+                    }
+                }
+
+                wave_labels_.insert(QString::fromStdString(labelName),
+                                    cue_data_[index].sampleOffset * static_cast<uint64_t>(wave_info_.bytesPerSample));
+
+                canLABL_ = true;
+            }
+
+            labelOffset += sizeof(wave_label_data_t) * i;
+            ++i;
+        }
     }
 }
 
@@ -282,7 +465,7 @@ void ASound::generateStuff_()
     if (canDo_)
     {
         // Генерируем буфер
-        alGenBuffers(1, &buffer_);
+        alGenBuffers(BUFFER_BLOCKS, buffer_);
 
         if (alGetError() != AL_NO_ERROR)
         {
@@ -302,11 +485,11 @@ void ASound::generateStuff_()
         }
 
         // Настраиваем буфер
-        alBufferData(buffer_,
-                     format_,
-                     wavData_,
-                     wave_info_.subchunk2Size,
-                     wave_info_.sampleRate);
+        for (int i = 0; i < BUFFER_BLOCKS; ++i)
+        {
+            alBufferData(buffer_[i], format_, wavData_[i], static_cast<ALsizei>(blockSize_[i]),
+                         static_cast<ALsizei>(wave_info_.sampleRate));
+        }
 
         if (alGetError() != AL_NO_ERROR)
         {
@@ -327,7 +510,7 @@ void ASound::configureSource_()
     if (canDo_)
     {
         // Передаём источнику буфер
-        alSourcei(source_, AL_BUFFER, buffer_);
+        alSourceQueueBuffers(source_, BUFFER_BLOCKS, buffer_);
 
         if (alGetError() != AL_NO_ERROR)
         {
@@ -357,7 +540,7 @@ void ASound::configureSource_()
         }
 
         // Устанавливаем зацикливание
-        alSourcei(source_, AL_LOOPING, (char)sourceLoop_);
+        alSourcei(source_, AL_LOOPING, static_cast<char>(sourceLoop_));
 
         if (alGetError() != AL_NO_ERROR)
         {
@@ -399,7 +582,7 @@ int ASound::getDuration()
     {
         double subchunk2Size = wave_info_.subchunk2Size;
         double byteRate = wave_info_.byteRate;
-        int duration = subchunk2Size/byteRate*100.0;
+        int duration = static_cast<int>(subchunk2Size/byteRate)*100;
         return 10*duration;
     }
     return 0;
@@ -470,7 +653,7 @@ void ASound::setLoop(bool loop)
     if (canPlay_)
     {
         sourceLoop_ = loop;
-        alSourcei(source_, AL_LOOPING, (char)sourceLoop_);
+        alSourcei(source_, AL_LOOPING, static_cast<char>(sourceLoop_));
     }
 }
 
@@ -549,6 +732,15 @@ void ASound::play()
 {
     if (canPlay_)
     {
+        if (canLABL_)
+        {
+            timerStartKiller_ = new QTimer(this);
+            connect(timerStartKiller_, SIGNAL(timeout()),
+                    this, SLOT(onTimerStartKiller()));
+            timerStartKiller_->setInterval(100);
+            timerStartKiller_->start();
+        }
+
         alSourcePlay(source_);
     }
 }
@@ -575,7 +767,21 @@ void ASound::stop()
 {
     if (canPlay_)
     {
-        alSourceStop(source_);
+        // Если у файла есть метки
+        if (canLABL_)
+        {
+            setLoop(false);
+            // Задаём смещение на блок звука остановки по метке
+            alSourcei(source_, AL_BYTE_OFFSET,
+                      static_cast<ALint>(blockSize_[0] + blockSize_[1]));
+
+            if (timerStartKiller_->isActive())
+                timerStartKiller_->stop();
+        }
+        else
+        {
+            alSourceStop(source_);
+        }
     }
 }
 
@@ -645,6 +851,26 @@ void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
             lastError_ = err;
             canDo_ = false;
         }
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Уничтожение блока старта
+//-----------------------------------------------------------------------------
+void ASound::onTimerStartKiller()
+{
+    ALint buffer, curPosByte;
+
+    alGetSourcei(source_, AL_BUFFER, &buffer);
+    alGetSourcei(source_, AL_BYTE_OFFSET, &curPosByte);
+
+
+    //if (static_cast<ALuint>(buffer) == buffer_[1])
+    if (curPosByte >= static_cast<ALint>(blockSize_[0] + blockSize_[1]))
+    {
+        alSourcei(source_, AL_BYTE_OFFSET, static_cast<ALint>(blockSize_[0]));
     }
 }
 

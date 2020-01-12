@@ -17,18 +17,22 @@
 #define ASOUND_H
 
 #include <QObject>
+#include <QMap>
 #include <AL/al.h>
 #include <AL/alc.h>
 
+#include "asound-log.h"
+
 class QFile;
 class QTimer;
-
 
 #if defined(ASOUND_LIBRARY)
 #  define ASOUNDSHARED_EXPORT Q_DECL_EXPORT
 #else
 #  define ASOUNDSHARED_EXPORT Q_DECL_IMPORT
 #endif
+
+#define BUFFER_BLOCKS 3
 
 
 //-----------------------------------------------------------------------------
@@ -54,6 +58,7 @@ public:
     ///
     void closeDevices();
 
+    LogFileHandler *log_;
 
 private:
     /// Конструктор (priate!)
@@ -119,7 +124,86 @@ struct wave_info_t
         subchunk2Size = 0;
     }
 };
+
+/*!
+ * \struct wave_cue_head_t
+ * \brief Структура для хранения "шапки" фрагмента CUE
+ */
+struct wave_cue_head_t
+{
+    char            cueChunckId[4]; ///< ID фрагмента CUE (4 байта) "0x63756520"
+    uint32_t        cueChunckSize;  ///< Размер фрагмента CUE (4 байта)
+    uint32_t        cueChunckPNum;  ///< Кол-во точек в CUE списке (4 байта)
+// Конструктор
+    wave_cue_head_t()
+    {
+        strcpy(cueChunckId, "");
+        cueChunckSize = 0;
+        cueChunckPNum = 0;
+    }
+};
+
+/*!
+ * \struct wave_cue_data_t
+ * \brief Структура для хранения данных фрагмента CUE
+ */
+struct wave_cue_data_t
+{
+    uint32_t        ID;             ///< Уникальный идентификатор cue точки
+    uint32_t        position;       ///< Смещение выборки связанной с точкой cue
+    char            dataChunckId[4];///< "data"
+    uint32_t        chunckStart;    ///< Байтовое смещение в секции списка WAVE
+    uint32_t        blockStart;     ///< Смещение в секции data (начало блока)
+    uint32_t        sampleOffset;   ///< Смещение выборки в секцию data
+// Конструктор
+    wave_cue_data_t()
+    {
+        ID = 0;
+        position = 0;
+        strcpy(dataChunckId, "");
+        chunckStart = 0;
+        blockStart = 0;
+        sampleOffset = 0;
+    }
+};
+
+/*!
+ * \struct wave_list_head_t
+ * \brief Структура для хранения данных "шапки" фрагмента LIST
+ */
+struct wave_list_head_t
+{
+    char            chunckId[4];    ///< "LIST" или "list"
+    uint32_t        dataSize;       ///< Размер фрагмента LIST
+    char            typeID[4];      ///< ID связанного типа данных "adtl"
+// Конструктор
+    wave_list_head_t()
+    {
+        strcpy(chunckId, "");
+        dataSize = 0;
+        strcpy(typeID, "");
+    }
+};
+
+/*!
+ * \struct wave_label_data_t
+ * \brief Структура для хранения данных фрагмента LIST->Label
+ */
+struct wave_label_data_t
+{
+    char            lablChunckID[4];///< ID фрагмента меток (4 байта) "labl"
+    uint32_t        lablChunckSize; ///< Размер фрагмента labl (4 байта)
+    uint32_t        lablCueID;      ///< ID связанного с меткой CUE точки (4 байта)
+// Конструктор
+    wave_label_data_t()
+    {
+        strcpy(lablChunckID, "");
+        lablChunckSize = 0;
+        lablCueID = 0;
+    }
+};
 #pragma pack(pop)
+
 
 /// Скорость воспроизведения источника по умолчанию
 const float DEF_SRC_PITCH = 1.0f;
@@ -210,6 +294,15 @@ public slots:
     /// Остановить звук
     void stop();
 
+signals:
+
+    void notify(const std::string msg);
+
+
+private slots:
+    /// Слот обработки таймера уничтожения у звука блока старта
+    void onTimerStartKiller();
+
 
 private:
     // Можно продолжать работу с файлом
@@ -217,6 +310,15 @@ private:
 
     // Можно играть звук
     bool canPlay_; ///< Флаг допуска к воспроизведению звука
+
+    // Имеет-ли файл секцию CUE
+    bool canCUE_; ///< Флаг наличия фрагмента CUE
+
+    // Имеет-ли файл секцию LABL
+    bool canLABL_; ///< Флаг наличия меток в файле
+
+    // Размер чанка блока date при квази-потоковом воспроизведении
+    ALsizei DATA_CHUNK_SIZE;
 
     // Имя звука
     QString soundName_; ///< Имя файла
@@ -230,11 +332,29 @@ private:
     // Информация о файле .wav
     wave_info_t wave_info_; ///< Структура информации о файле
 
+    // "шапка" списка CUE
+    wave_cue_head_t cue_head_; ///< Структура "шапка" CUE
+
+    // Список меток CUE
+    QList <wave_cue_data_t>cue_data_; ///< Структура информации списка CUE
+
+    // "шапка" списка меток
+    wave_list_head_t list_head_; ///< Структура "шапка" LIST
+
+    // Метки labels
+    wave_label_data_t label_data_; ///< Структура меток LABELS
+
+    // Список меток labels (имя, смещение в секции data)
+    QMap<QString, uint64_t> wave_labels_; ///< Список меток
+
     // Хранилище для data секции (самой музыки) файла .wav
-    unsigned char* wavData_; ///< Контейнер секции data файла wav
+    unsigned char* wavData_[BUFFER_BLOCKS]; ///< Контейнер секций блока данных файла wav
+
+    // Размер каждого из 3-х блоков данных фай
+    uint64_t blockSize_[BUFFER_BLOCKS]; ///< Размер блоков данных файла wav
 
     // Буфер OpenAL
-    ALuint  buffer_; ///< Буфер OpenAL
+    ALuint  buffer_[BUFFER_BLOCKS]; ///< Буфер OpenAL 3 секции (старт, цикл, остановка)
 
     // Источник OpenAL
     ALuint  source_; ///< Источник OpenAL
@@ -257,6 +377,9 @@ private:
     // "Скорость передвижения" источника
     ALfloat sourceVelocity_[3]; ///< "Скорость передвижения" источника
 
+    /// Таймер для стирания в звуке блока старта
+    QTimer* timerStartKiller_;
+
     /// Полная подготовка файла
     void loadSound_(QString soundname);
 
@@ -269,6 +392,12 @@ private:
     /// Определение формата аудио (mono8/16 - stereo8/16)
     void defineFormat_();
 
+    /// Получение CUE фрагмента
+    void getCUE_(QByteArray &baseStr);
+
+    /// Получение списка меток (Labels)
+    void getLabels_(QByteArray &baseStr);
+
     /// Генерация буфера и источника
     void generateStuff_();
 
@@ -277,6 +406,9 @@ private:
 
     /// Метод проверки необходимых параметров
     void checkValue(std::string baseStr, const char targStr[], QString err);
+
+    /// Подпрограмма очистки контейнеров данных дорожки
+    void deleteWAVEDataContainers();
 };
 
 
