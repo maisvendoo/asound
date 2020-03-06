@@ -102,6 +102,7 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
     }
 
     connect(this, &ASound::notify, AListener::getInstance().log_, &LogFileHandler::notify);
+    connect(this, &ASound::lastErrorChanged_, AListener::getInstance().log_, &LogFileHandler::notify);
 
     emit notify("T Load sound: " + soundname.toStdString());
 
@@ -190,6 +191,7 @@ void ASound::loadFile_(QString soundname)
     // Проверяем, существует ли файл
     if (!file_->exists())
     {
+        setLastError("NO_SUCH_FILE: " + soundname.toStdString());
         lastError_ = "NO_SUCH_FILE: ";
         lastError_.append(soundname);
         canDo_ = false;
@@ -222,39 +224,30 @@ void ASound::readWaveInfo_()
         // Если ранее был загружен другой файл
         deleteWAVEDataContainers();
 
-        // Читаем все 44 байта информации в массив
-        QByteArray arr = file_->read(sizeof(wave_info_t));
+        // Читаем первые 12 байт файла
+        readWaveHeader_();
 
-        // Переносим все значения из массива в струтуру
-        memcpy(&wave_info_,
-               arr.data(),
-               sizeof(wave_info_t));
+        // Следующие 4 байта
+        QByteArray arr = file_->read(4);
 
-        // ////////////////////////////////////////////// //
-        //      Далее идет проверка данных. Проверка      //
-        //  представляет из себя поиск позиции подстроки  //
-        //      в исходной строке (если она там есть).    //
-        // ////////////////////////////////////////////// //
-        checkValue(wave_info_.chunkId, "RIFF", "NOT_RIFF_FILE");
-        checkValue(wave_info_.format, "WAVE", "NOT_WAVE_FILE");
-        checkValue(wave_info_.subchunk1Id, "fmt", "NO_fmt");
-        checkValue(wave_info_.subchunk2Id, "data", "NO_data");
+        if (strncmp(arr.data(), "JUNK", 4) == 0)
+        {
+            // Читаем длину сегмента JUNK
+            arr = file_->read(4);
+            int JUNKLen = arr.at(0);
+            // Читаем данные блока JUNK в "никуда"
+            file_->read(JUNKLen);
+        }
 
-        emit notify("| - File size: " + QString::number(file_->size()).toStdString());
-        emit notify("| - File data size: " + QString::number(wave_info_.subchunk2Size).toStdString());
-        emit notify("| - Byterate: " + QString::number(wave_info_.byteRate).toStdString());
-        emit notify("| - Sample rate: " + QString::number(wave_info_.sampleRate).toStdString());
-        emit notify("| - File data size: " + QString::number(wave_info_.numChannels).toStdString());
-        emit notify("| - Bits per sample: " + QString::number(wave_info_.bitsPerSample).toStdString());
-        emit notify("| - Bytes per sample: " + QString::number(wave_info_.bytesPerSample).toStdString());
+        readWaveFmtData_(arr);
 
         if (canDo_)
         {
             // Читаем из файла сами медиа данные зная их размер
-            arr = file_->read(wave_info_.subchunk2Size);
+            arr = file_->read(wave_info_file_data_.subchunk2Size);
             // Читаем оставшуюся информацию из WAVE файла
             uint32_t extraBlockSize =
-                    static_cast<uint32_t>(file_->size()) - wave_info_.subchunk2Size - sizeof(wave_info_t);
+                    static_cast<uint32_t>(file_->size()) - wave_info_file_data_.subchunk2Size - sizeof(wave_info_fmt_t);
             QByteArray arrDop = file_->read(extraBlockSize);
 
             getCUE_(arrDop);
@@ -279,20 +272,27 @@ void ASound::readWaveInfo_()
                         memcpy(wavData_[i], blockData.data(),
                                blockSize_[i]);
                         data_offset += blockSize_[i];
+                        ++i;
                     }
                     ++labl_map;
-                    ++i;
                 }
             }
 
             // Создаем массив для данных
-            blockSize_[i] = wave_info_.subchunk2Size - static_cast<uint32_t>(data_offset);
+            blockSize_[i] = wave_info_file_data_.subchunk2Size - static_cast<uint32_t>(data_offset);
             wavData_[i] = new unsigned char[blockSize_[i]];
             blockData = arr.mid(data_offset, static_cast<int>(blockSize_[i]));
             // Переносим данные в массив
             memcpy(wavData_[i], blockData.data(),
                    blockSize_[i]);
             ++i;
+            emit notify("| - File size: " + QString::number(file_->size()).toStdString());
+            emit notify("| - File data size: " + QString::number(wave_info_file_data_.subchunk2Size).toStdString());
+            emit notify("| - Byterate: " + QString::number(wave_info_.byteRate).toStdString());
+            emit notify("| - Sample rate: " + QString::number(wave_info_.sampleRate).toStdString());
+            emit notify("| - Num channels: " + QString::number(wave_info_.numChannels).toStdString());
+            emit notify("| - Bits per sample: " + QString::number(wave_info_.bitsPerSample).toStdString());
+            emit notify("| - Bytes per sample: " + QString::number(wave_info_.bytesPerSample).toStdString());
             emit notify("| - Buffer blocks: " + QString::number(i).toStdString());
 
             for (int i = 0; i < BUFFER_BLOCKS; ++i)
@@ -304,6 +304,55 @@ void ASound::readWaveInfo_()
             // Закрываем файл
             file_->close();
         }
+    }
+}
+
+
+//-----------------------------------------------------------------------------
+// Получение первых 12-и байт WAVE файла
+//-----------------------------------------------------------------------------
+void ASound::readWaveHeader_()
+{
+    // Читаем 12 байт информации о формате
+    QByteArray arr = file_->read(sizeof(wave_info_header_));
+
+    // Переносим все значения из массива в струтуру
+    memcpy(&wave_info_header_, arr.data(),
+           sizeof(wave_info_fmt_t));
+    // Проверка данных формата
+    checkValue(wave_info_header_.chunkId, "RIFF", "NOT_RIFF_FILE");
+    checkValue(wave_info_header_.format, "WAVE", "NOT_WAVE_FILE");
+}
+
+
+//-----------------------------------------------------------------------------
+// Получение данных о формате файла и секции data
+//-----------------------------------------------------------------------------
+void ASound::readWaveFmtData_(QByteArray arr)
+{
+    //QByteArray arr;
+    // Ищем секцию data, откидывая все "ненужное" (PAD Sectors)
+    while (!file_->atEnd())
+    {
+        if (strncmp(arr.data(), "fmt ", 4) == 0)
+        {
+            arr = file_->read(sizeof(wave_info_) - 4);
+            arr.insert(0, "fmt ");
+            memcpy(&wave_info_, arr.data(), sizeof(wave_info_));
+
+            do {
+                arr = file_->read(1);
+            } while (strncmp(arr.data(), "\0", 1) == 0);
+
+            arr = file_->read(3);
+            arr = file_->read(sizeof(wave_info_file_data_) - 4);
+            arr.insert(0, "data");
+            memcpy(&wave_info_file_data_, arr.data(), sizeof(wave_info_file_data_));
+
+            if (strncmp(wave_info_file_data_.subchunk2Id, "data", 4) == 0)
+                break;
+        }
+        arr = file_->read(4);
     }
 }
 
@@ -354,6 +403,61 @@ void ASound::getCUE_(QByteArray &baseStr)
 //-----------------------------------------------------------------------------
 void ASound::getLabels_(QByteArray &baseStr)
 {
+    // Читаем шапку блока LIST
+    readWaveListChunckHeader_(baseStr);
+
+    // Если был найден список
+    if (strncasecmp(list_head_.chunckId, "list", 4) == 0)
+    {
+        QByteArray lablChunckId("labl"), tmp_data;
+
+        int labelOffset = 0, labelFirstByte = 0;
+
+        // Крутим пока не достигнем последней метки labl
+        do
+        {
+            labelFirstByte = baseStr.indexOf(lablChunckId, labelOffset);
+            int labelLength = 0; ///< Длина блока данных метки
+            int labelCueID = 0; ///< ID связанной точки cue
+            std::string labelName; ///< Имя метки
+
+            if (labelFirstByte != -1)
+            {
+                // Парсим секцию labl вручную, так как не знаем заранее его длину. . .
+                tmp_data = baseStr.mid(labelFirstByte + 4, 4);
+                labelLength = tmp_data.at(0); // Получаем длину метки в байтах
+                tmp_data = baseStr.mid(labelFirstByte + 8, 4);
+                labelCueID = tmp_data.at(0); // Получаем ID точки cue
+                tmp_data = baseStr.mid(labelFirstByte + 12, labelLength - 5);
+                labelName = tmp_data.data(); // Получаем имя метки
+
+                int index = 0; // Индекс для связанной точки cue в списке точек cue
+
+                for (int k = 0; k < cue_data_.count(); ++k)
+                    if (cue_data_[k].ID == labelCueID)
+                    {
+                        index = k;
+                        break;
+                    }
+
+                wave_labels_.insert(QString::fromStdString(labelName),
+                                    cue_data_[index].sampleOffset * static_cast<uint64_t>(wave_info_.bytesPerSample));
+
+                canLABL_ = true;
+            }
+
+            labelOffset = labelFirstByte + 4; // Сдвигаем поиск на следующую метку
+        } while (labelFirstByte != -1);
+    }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Чтение шапки фрагмента LIST файла wav
+//-----------------------------------------------------------------------------
+void ASound::readWaveListChunckHeader_(QByteArray &baseStr)
+{
     QByteArray listChunckID("LIST");
     // Некоторые программы сохраняют фрагмент LIST - маленькими буквами
     QByteArray listChunckIDLower("list");
@@ -362,57 +466,15 @@ void ASound::getLabels_(QByteArray &baseStr)
     listFirstByte =
             (listFirstByte == -1 ?
                  baseStr.indexOf(listChunckIDLower) : listFirstByte);
-    // Если был найден список в строке
     if (listFirstByte != -1)
     {
         // Загружаем во временный массив блок "шапки" фрагмента LIST
         QByteArray tmp_data = baseStr.mid(listFirstByte,
                                           sizeof(wave_list_head_t));
+
         // Данные со временного массива - в структуру
         memcpy(&list_head_, tmp_data.data(),
                sizeof(wave_list_head_t));
-        // Временный экземпляр структуры данных
-        wave_cue_data_t cue_data_t_;
-        uint32_t i = 1; // Итератор
-        // Chunck ID для подфрагмента labl
-        QByteArray lablChunckId("labl");
-        int labelOffset = 0;
-        // Крутим пока не достигнем конца блока LIST
-        while (static_cast<int>(list_head_.dataSize) >= labelOffset)
-        {
-            tmp_data = baseStr.mid(listFirstByte + static_cast<int>(sizeof(wave_list_head_t)) +
-                                   labelOffset, sizeof(wave_label_data_t) + 6);
-
-            if (tmp_data.indexOf(lablChunckId) != -1)
-            {
-                memcpy(&label_data_, tmp_data.data(),
-                       sizeof(wave_label_data_t));
-
-                tmp_data = tmp_data.mid(12, static_cast<int>(label_data_.lablChunckSize) - 5);
-
-                std::string labelName = tmp_data.data();
-                labelOffset += labelName.size() + (labelName.size() % 2 == 0 ? 2 : 1);
-
-                int index = 0;
-
-                for (int k = 0; k < cue_data_.count(); ++k)
-                {
-                    if (cue_data_[k].ID == label_data_.lablCueID)
-                    {
-                        index = k;
-                        break;
-                    }
-                }
-
-                wave_labels_.insert(QString::fromStdString(labelName),
-                                    cue_data_[index].sampleOffset * static_cast<uint64_t>(wave_info_.bytesPerSample));
-
-                canLABL_ = true;
-            }
-
-            labelOffset += sizeof(wave_label_data_t) * i;
-            ++i;
-        }
     }
 }
 
@@ -580,7 +642,7 @@ int ASound::getDuration()
 {
     if (canDo_)
     {
-        double subchunk2Size = wave_info_.subchunk2Size;
+        double subchunk2Size = wave_info_file_data_.subchunk2Size;
         double byteRate = wave_info_.byteRate;
         int duration = static_cast<int>(subchunk2Size/byteRate)*100;
         return 10*duration;
@@ -737,7 +799,7 @@ void ASound::play()
             timerStartKiller_ = new QTimer(this);
             connect(timerStartKiller_, SIGNAL(timeout()),
                     this, SLOT(onTimerStartKiller()));
-            timerStartKiller_->setInterval(100);
+            timerStartKiller_->setInterval(15);
             timerStartKiller_->start();
         }
 
@@ -848,6 +910,7 @@ void ASound::checkValue(std::string baseStr, const char targStr[], QString err)
         // // /////////////////////////////////////////////// //
         if (baseStr.find(targStr) != 0)
         {
+            setLastError(err.toStdString());
             lastError_ = err;
             canDo_ = false;
         }
@@ -874,6 +937,12 @@ void ASound::onTimerStartKiller()
     }
 }
 
+
+
+//void ASound::lastErrorChanged_(const QString &value)
+//{
+//    emit notify("E - " + value.toStdString());
+//}
 
 
 

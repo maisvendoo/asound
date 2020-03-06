@@ -50,7 +50,7 @@ const float DEF_LSN_ORI[6] = {0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f};
  * \brief Класс, реализующий создание единственного слушателя
  */
 class ASOUNDSHARED_EXPORT AListener
-{
+{   
 public:
     /// Статический метод запрещающий повторное создание экземпляра класса
     static AListener &getInstance();
@@ -88,14 +88,28 @@ private:
 //-----------------------------------------------------------------------------
 #pragma pack(push, 1)
 /*!
- * \struct wave_info_t
- * \brief Структура для хранения данных о wav файле
+ * \struct wave_info_header_t
+ * \brief Структура для хранения секции RIFF & WAVE файла
  */
-struct wave_info_t
+struct wave_info_header_t
 {
     char            chunkId[4];     ///< ID главного фрагмента "RIFF"
     uint32_t        chunkSize;      ///< Размер первого фрагмента
     char            format[4];      ///< Формат "WAVE"
+    wave_info_header_t()
+    {
+        strcpy(chunkId, "");
+        chunkSize = 0;
+        strcpy(format, "");
+    }
+};
+/*!
+ * \struct wave_info_t
+ * \brief Структура для хранения данных о wav файле
+ */
+struct wave_info_fmt_t
+{
+
     char            subchunk1Id[4]; ///< ID первого подфрагмента "fmt"
     uint32_t        subchunk1Size;  ///< Размер первого подфрагмента
     short           audioFormat;    ///< Формат сжатия
@@ -104,14 +118,9 @@ struct wave_info_t
     uint32_t        byteRate;       ///< Байт в секунду
     short           bytesPerSample; ///< Байт в одном сэмпле (blockAlign)
     short           bitsPerSample;  ///< Бит в сэмпле
-    char            subchunk2Id[4]; ///< ID второго субфрагмента "data"
-    uint32_t        subchunk2Size;  ///< Размер дорожки
 // Constructor
-    wave_info_t()
+    wave_info_fmt_t()
     {
-        strcpy(chunkId, "");
-        chunkSize = 0;
-        strcpy(format, "");
         strcpy(subchunk1Id, "");
         subchunk1Size = 0;
         audioFormat = 0;
@@ -120,6 +129,20 @@ struct wave_info_t
         byteRate = 0;
         bytesPerSample = 0;
         bitsPerSample = 0;
+    }
+};
+
+/*!
+ * \struct wave_info_file_data_t
+ * \brief Структура для хранения данных "data" WAVE файла
+ */
+struct wave_info_file_data_t
+{
+    char            subchunk2Id[4]; ///< ID второго субфрагмента "data"
+    uint32_t        subchunk2Size;  ///< Размер дорожки
+// Constructor
+    wave_info_file_data_t()
+    {
         strcpy(subchunk2Id, "");
         subchunk2Size = 0;
     }
@@ -149,7 +172,7 @@ struct wave_cue_head_t
  */
 struct wave_cue_data_t
 {
-    uint32_t        ID;             ///< Уникальный идентификатор cue точки
+    int32_t         ID;             ///< Уникальный идентификатор cue точки
     uint32_t        position;       ///< Смещение выборки связанной с точкой cue
     char            dataChunckId[4];///< "data"
     uint32_t        chunckStart;    ///< Байтовое смещение в секции списка WAVE
@@ -184,24 +207,6 @@ struct wave_list_head_t
         strcpy(typeID, "");
     }
 };
-
-/*!
- * \struct wave_label_data_t
- * \brief Структура для хранения данных фрагмента LIST->Label
- */
-struct wave_label_data_t
-{
-    char            lablChunckID[4];///< ID фрагмента меток (4 байта) "labl"
-    uint32_t        lablChunckSize; ///< Размер фрагмента labl (4 байта)
-    uint32_t        lablCueID;      ///< ID связанного с меткой CUE точки (4 байта)
-// Конструктор
-    wave_label_data_t()
-    {
-        strcpy(lablChunckID, "");
-        lablChunckSize = 0;
-        lablCueID = 0;
-    }
-};
 #pragma pack(pop)
 
 
@@ -229,6 +234,7 @@ const float DEF_SRC_VEL[3] = {0.0f, 0.0f, 0.0f};
 class ASOUNDSHARED_EXPORT ASound : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(std::string lastError_ WRITE setLastError NOTIFY lastErrorChanged_)
 public:
     /*!
      * \brief Конструктор
@@ -268,6 +274,12 @@ public:
     /// Длительность звука в секундах
     int getDuration();
 
+    void setLastError(const std::string& value)
+    {
+        LastError_ = "E - " + QString::fromStdString(value);
+        emit lastErrorChanged_(value);
+    }
+
 
 public slots:
     /// Установить громкость
@@ -296,6 +308,8 @@ public slots:
 
 signals:
 
+    void lastErrorChanged_(const std::string);
+
     void notify(const std::string msg);
 
 
@@ -305,6 +319,7 @@ private slots:
 
 
 private:
+
     // Можно продолжать работу с файлом
     bool canDo_; ///< Флаг допуска к работе с файлом
 
@@ -329,8 +344,14 @@ private:
     // Переменная для хранения файла
     QFile* file_; ///< Контейнер файла
 
+    // Информация формата входного звукового файла
+    wave_info_header_t wave_info_header_; ///< Структура информации формата файла [RIFF&&WAVE]
+
     // Информация о файле .wav
-    wave_info_t wave_info_; ///< Структура информации о файле
+    wave_info_fmt_t wave_info_; ///< Структура информации о файле
+
+    // Секция data в WAVE файле
+    wave_info_file_data_t wave_info_file_data_; ///< Структура информации секции data
 
     // "шапка" списка CUE
     wave_cue_head_t cue_head_; ///< Структура "шапка" CUE
@@ -340,9 +361,6 @@ private:
 
     // "шапка" списка меток
     wave_list_head_t list_head_; ///< Структура "шапка" LIST
-
-    // Метки labels
-    wave_label_data_t label_data_; ///< Структура меток LABELS
 
     // Список меток labels (имя, смещение в секции data)
     QMap<QString, uint64_t> wave_labels_; ///< Список меток
@@ -380,6 +398,9 @@ private:
     /// Таймер для стирания в звуке блока старта
     QTimer* timerStartKiller_;
 
+    /// Last error in asound
+    QString LastError_;
+
     /// Полная подготовка файла
     void loadSound_(QString soundname);
 
@@ -388,6 +409,15 @@ private:
 
     /// Чтение информации о файле .wav
     void readWaveInfo_();
+
+    /// Чтение формата файла
+    void readWaveHeader_();
+
+    /// Чтение данных формата и секции data
+    void readWaveFmtData_(QByteArray arr);
+
+    /// Чтение фрагмента LIST ("шапки")
+    void readWaveListChunckHeader_(QByteArray &baseStr);
 
     /// Определение формата аудио (mono8/16 - stereo8/16)
     void defineFormat_();
