@@ -20,7 +20,7 @@
 #include    <QFile>
 
 class LogFileHandler : public QObject
-{
+{   
 public:
 
     /// Constructor
@@ -35,11 +35,14 @@ public slots:
 
 protected:
 
-    /// File opened flag
-    bool canDo_;
-
     /// Log output stream
     std::ofstream log_;
+
+
+private:
+
+    /// File opened flag
+    bool canDo_;
 
     /// Log file
     QFile* file_;

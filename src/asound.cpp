@@ -511,6 +511,7 @@ void ASound::defineFormat_()
         }
         else                                    // Если все плохо
         {
+            setLastError("UNKNOWN_AUDIO_FORMAT");
             lastError_ = "UNKNOWN_AUDIO_FORMAT";
             canDo_ = false;
         }
@@ -792,17 +793,24 @@ void ASound::getVelocity(float &x, float &y, float &z)
 //-----------------------------------------------------------------------------
 void ASound::play()
 {
-    if (canPlay_)
+    if (!isPlaying())
     {
-        if (canLABL_)
+        if (canPlay_)
         {
-            timerStartKiller_ = new QTimer(this);
-            connect(timerStartKiller_, SIGNAL(timeout()),
-                    this, SLOT(onTimerStartKiller()));
-            timerStartKiller_->setInterval(15);
-            timerStartKiller_->start();
-        }
+            if (canLABL_)
+            {
+                timerStartKiller_ = new QTimer(this);
+                connect(timerStartKiller_, SIGNAL(timeout()),
+                        this, SLOT(onTimerStartKiller()));
+                timerStartKiller_->setInterval(15);
+                timerStartKiller_->start();
+            }
 
+            alSourcePlay(source_);
+        }
+    }
+    else
+    {
         alSourcePlay(source_);
     }
 }
@@ -936,13 +944,6 @@ void ASound::onTimerStartKiller()
         alSourcei(source_, AL_BYTE_OFFSET, static_cast<ALint>(blockSize_[0]));
     }
 }
-
-
-
-//void ASound::lastErrorChanged_(const QString &value)
-//{
-//    emit notify("E - " + value.toStdString());
-//}
 
 
 
