@@ -318,7 +318,7 @@ void ASound::readWaveHeader_()
 
     // Переносим все значения из массива в струтуру
     memcpy(&wave_info_header_, arr.data(),
-           sizeof(wave_info_fmt_t));
+           sizeof(wave_info_header_t));
     // Проверка данных формата
     checkValue(wave_info_header_.chunkId, "RIFF", "NOT_RIFF_FILE");
     checkValue(wave_info_header_.format, "WAVE", "NOT_WAVE_FILE");
