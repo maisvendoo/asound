@@ -19,7 +19,7 @@
 //------------------------------------------------------------------------------
 LogFileHandler::LogFileHandler(const std::string &file)
 {
-    QString fname = "..\\logs\\" + QString::fromStdString(file);
+    QString fname = "../logs/" + QString::fromStdString(file);
 
     file_ = new QFile();
 
