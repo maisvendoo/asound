@@ -42,6 +42,7 @@ AListener::AListener()
     alListenerfv(AL_ORIENTATION, listenerOrientation_);
 
     log_ = new LogFileHandler("asound.log");
+
 }
 
 
@@ -108,6 +109,8 @@ ASound::ASound(QString soundname, QObject *parent): QObject(parent),
 
     // Загружаем звук
     loadSound_(soundname);
+
+    timerStartKiller_ = Q_NULLPTR;
 }
 
 
@@ -845,8 +848,9 @@ void ASound::stop()
             alSourcei(source_, AL_BYTE_OFFSET,
                       static_cast<ALint>(blockSize_[0] + blockSize_[1]));
 
-            if (timerStartKiller_->isActive())
-                timerStartKiller_->stop();
+            if (timerStartKiller_ != Q_NULLPTR)
+                if (timerStartKiller_->isActive())
+                    timerStartKiller_->stop();
         }
         else
         {
