@@ -13,13 +13,15 @@
  */
 
 #include    "asound-log.h"
+#include    <QDir>
 
 //------------------------------------------------------------------------------
 //
 //------------------------------------------------------------------------------
 LogFileHandler::LogFileHandler(const std::string &file)
 {
-    QString fname = "../logs/" + QString::fromStdString(file);
+    QString logs_dir = "../logs/";
+    QString fname = QDir::toNativeSeparators(logs_dir) + QString::fromStdString(file);
 
     file_ = new QFile();
 
